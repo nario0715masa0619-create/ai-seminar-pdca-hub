@@ -28,5 +28,10 @@
 `config/sheets.json` を作成し、実際の `spreadsheetId` とシート名を埋めてください。
 `config/sheets.json` は `.gitignore` で除外されているため、コミットされません。
 
+対象スプレッドシート側には、`parent` / `x_ads` / `lp` / `talk` / `slides` / `follow_up` の
+6タブ（シート名は`config/sheets.json`の`sheets`マッピングと一致させる）をあらかじめ作成しておく必要があります。
+`parent`シートのヘッダー行は `node scripts/sync-sheets.js init-parent-headers` で初期化できます
+（`docs/schema.md`のParent Sheetカラム名がそのまま1行目に追記されます）。
+
 ## 今後の予定
 - **MVPフェーズ**: X広告 ＋ LP ＋ セミナー1本 の検証サイクルを構築・運用。

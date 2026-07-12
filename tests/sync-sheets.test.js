@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const path = require("node:path");
 const { payloadToRow, loadSheetsConfig, appendRow, EXAMPLE_CONFIG_PATH } = require("../scripts/sync-sheets");
 const { getColumnNames } = require("../scripts/schema-utils");
 
@@ -43,10 +44,15 @@ test("payloadToRow preserves non-string values (numbers, booleans)", () => {
   assert.equal(row[columns.indexOf("registrations")], 0);
 });
 
-test("loadSheetsConfig throws a helpful error when config/sheets.json is missing", () => {
-  // config/sheets.json は .gitignore 対象で通常存在しないため、デフォルトパスのままだと必ず失敗する想定
-  delete process.env.SHEETS_CONFIG_PATH;
-  assert.throws(() => loadSheetsConfig(), /Sheets config not found/);
+test("loadSheetsConfig throws a helpful error when the config file is missing", () => {
+  // ローカル環境では実運用の config/sheets.json が存在しうるため、デフォルトパスに依存せず
+  // 確実に存在しないパスを SHEETS_CONFIG_PATH で指定して検証する。
+  process.env.SHEETS_CONFIG_PATH = path.join(__dirname, "does-not-exist.sheets.json");
+  try {
+    assert.throws(() => loadSheetsConfig(), /Sheets config not found/);
+  } finally {
+    delete process.env.SHEETS_CONFIG_PATH;
+  }
 });
 
 test("loadSheetsConfig loads config/sheets.example.json via SHEETS_CONFIG_PATH override", () => {

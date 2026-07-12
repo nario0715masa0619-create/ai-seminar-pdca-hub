@@ -133,19 +133,43 @@ async function syncPayloadToSheets(payload) {
   }
 }
 
+/**
+ * parent シートの1行目に、docs/schema.md の Parent Sheet カラム名（英語）をそのままヘッダー行として書き込む。
+ * 初回セットアップ時に1回だけ実行する想定（複数回実行するとヘッダー行が重複して追加される点に注意）。
+ * @returns {Promise<*>} spreadsheets.values.append のレスポンス
+ */
+async function initParentSheetHeaders() {
+  const headerRow = getColumnNames("parent");
+  return appendRow({ sheetKey: "parent", values: headerRow });
+}
+
 module.exports = {
   loadSheetsConfig,
   getSheetsClient,
   appendRow,
   payloadToRow,
   syncPayloadToSheets,
+  initParentSheetHeaders,
   DEFAULT_CONFIG_PATH,
   EXAMPLE_CONFIG_PATH,
 };
 
 if (require.main === module) {
-  syncPayloadToSheets({}).catch((err) => {
-    console.error(err.message);
-    process.exit(1);
-  });
+  const command = process.argv[2];
+
+  const run =
+    command === "init-parent-headers"
+      ? initParentSheetHeaders()
+      : command
+        ? Promise.reject(new Error(`Unknown command: "${command}". Expected "init-parent-headers" or no argument.`))
+        : syncPayloadToSheets({});
+
+  run
+    .then((result) => {
+      console.log(JSON.stringify(result && result.data ? result.data : result, null, 2));
+    })
+    .catch((err) => {
+      console.error(err.message);
+      process.exit(1);
+    });
 }
