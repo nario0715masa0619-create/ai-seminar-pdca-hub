@@ -82,11 +82,30 @@ X（旧Twitter）広告クリエイティブを生成・評価するための入
 | test_variable | 今回のA/Bテストで変えている要素（hero / cta / form_length など） |
 | hypothesis | テスト仮説のメモ |
 
-## トークスクリプトテンプレの入力項目
-- 導入（アイスブレイク、アジェンダ）
-- 本編（各セクションごとのトーク内容）
-- クロージング（次回案内、アンケート誘導）
-- 想定Q&A
+## Talk Script Template
+
+ウェビナー本編のトークスクリプト（台本）を生成・評価するための入力スキーマ。  
+1行＝1セミナーにつき1バージョン（改善前後で複数行になる想定）。
+
+### Required Columns
+
+| column | description |
+|---|---|
+| script_id | スクリプトの一意ID |
+| seminar_id | 紐づくセミナーID（Parent Sheetのseminar_id） |
+| target_audience | 想定ターゲット（例: 中小企業の経営者 / マーケ責任者） |
+| main_message | メイン訴求（例: 広告改善 / 営業自動化 / AI導入） |
+| title_type | タイトル型（problem-solution / how-to / case-study など） |
+| seminar_goal | このセミナーのゴール（例: 個別相談獲得 / AIS提案 / AI研修相談） |
+| main_problem | 参加者が抱えている主要課題の要約 |
+| core_message | 全編を通して一番伝えたい中核メッセージ |
+| outline | 章構成（例: intro → problem → solution → case → offer → qanda）をテキストで持つ |
+| duration_minutes | 想定尺（分） |
+| primary_cta | 本編で最も強く案内するCTA（例: 個別相談を申し込む） |
+| secondary_cta | 補助的に案内するCTA（例: 資料ダウンロード） |
+| tone | 話し方のトーン（例: friendly / professional / urgent） |
+| test_variable | 今回の改善対象（intro / case_part / cta_part など） |
+| hypothesis | 改善仮説のメモ |
 
 ## スライドテンプレの入力項目
 - タイトルスライド
