@@ -176,6 +176,114 @@ async function appendTestRowToParent() {
   return appendRow({ sheetKey: "parent", values });
 }
 
+/**
+ * ヘッダー行を除くデータ行の中から、seminar_id列がprefixで始まる行の
+ * インデックス（ヘッダー行を0とした0-based、Sheets APIのdeleteDimensionにそのまま使える形）を探す。
+ * googleapis非依存の純粋関数（テスト用に分離）。
+ * @param {Array<Array<string>>} rows - spreadsheets.values.get の values（1行目はヘッダー）
+ * @param {string[]} columnNames - getColumnNames(sheetKey) の結果
+ * @param {string} prefix - 例: "test-e2e-"
+ * @returns {number[]} 0-based row index の配列（降順ではない、呼び出し側でソートする）
+ */
+function findTestRowIndices(rows, columnNames, prefix) {
+  const seminarIdIndex = columnNames.indexOf("seminar_id");
+  if (seminarIdIndex === -1) {
+    throw new Error('"seminar_id" column not found in columnNames');
+  }
+
+  const indices = [];
+  for (let i = 1; i < rows.length; i += 1) {
+    const value = rows[i][seminarIdIndex];
+    if (typeof value === "string" && value.startsWith(prefix)) {
+      indices.push(i);
+    }
+  }
+  return indices;
+}
+
+/**
+ * 指定シートのタイトルから、Sheets APIのdeleteDimensionリクエストに必要な数値のsheetId（gid）を取得する。
+ * @param {string} sheetTitle
+ * @param {{ spreadsheetId: string }} config
+ * @param {import('googleapis').sheets_v4.Sheets} sheets
+ * @returns {Promise<number>}
+ */
+async function getSheetId(sheetTitle, config, sheets) {
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId: config.spreadsheetId,
+    fields: "sheets.properties",
+  });
+  const sheet = (meta.data.sheets || []).find((s) => s.properties.title === sheetTitle);
+  if (!sheet) {
+    throw new Error(`Sheet not found in spreadsheet: "${sheetTitle}"`);
+  }
+  return sheet.properties.sheetId;
+}
+
+/**
+ * 指定シートから、seminar_id列がprefix（デフォルト "test-e2e-"）で始まる行をすべて削除する。
+ * appendTestRowToParent() 等のE2Eテストで溜まったテストデータのクリーンアップ用。
+ * @param {string} sheetKey - "parent" | "x_ads" | "lp" | "talk" | "slides" | "follow_up"
+ * @param {{ prefix?: string, config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options]
+ * @returns {Promise<{ deleted: number }>}
+ */
+async function deleteTestRows(sheetKey, options = {}) {
+  const prefix = options.prefix || "test-e2e-";
+  const config = options.config || loadSheetsConfig();
+  const sheets = options.sheets || (await getSheetsClient());
+  const sheetTitle = config.sheets[sheetKey];
+
+  if (!sheetTitle) {
+    throw new Error(`Unknown sheetKey: "${sheetKey}". Check the "sheets" mapping in config/sheets.json.`);
+  }
+
+  const columnNames = getColumnNames(sheetKey);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: config.spreadsheetId,
+    range: `${sheetTitle}!A:Z`,
+  });
+  const rows = res.data.values || [];
+  const rowIndices = findTestRowIndices(rows, columnNames, prefix);
+
+  if (rowIndices.length === 0) {
+    return { deleted: 0 };
+  }
+
+  const sheetId = await getSheetId(sheetTitle, config, sheets);
+  // 行番号が大きい方から削除しないと、削除するたびに後続行のインデックスがずれる
+  const requests = [...rowIndices]
+    .sort((a, b) => b - a)
+    .map((rowIndex) => ({
+      deleteDimension: {
+        range: { sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 },
+      },
+    }));
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: config.spreadsheetId,
+    requestBody: { requests },
+  });
+
+  return { deleted: rowIndices.length };
+}
+
+/**
+ * config/sheets.json に定義された全シートについて、seminar_idがprefixで始まるテスト行をすべて削除する。
+ * @param {{ prefix?: string }} [options]
+ * @returns {Promise<Array<{ sheetKey: string, deleted: number }>>}
+ */
+async function deleteAllTestRows(options = {}) {
+  const config = loadSheetsConfig();
+  const sheets = await getSheetsClient();
+
+  const results = [];
+  for (const sheetKey of Object.keys(config.sheets)) {
+    const result = await deleteTestRows(sheetKey, { ...options, config, sheets });
+    results.push({ sheetKey, ...result });
+  }
+  return results;
+}
+
 module.exports = {
   loadSheetsConfig,
   getSheetsClient,
@@ -185,6 +293,9 @@ module.exports = {
   initSheetHeaders,
   initAllSheetHeaders,
   appendTestRowToParent,
+  findTestRowIndices,
+  deleteTestRows,
+  deleteAllTestRows,
   DEFAULT_CONFIG_PATH,
   EXAMPLE_CONFIG_PATH,
 };
@@ -201,6 +312,7 @@ if (require.main === module) {
     },
     "init-all-headers": initAllSheetHeaders,
     "append-test-row": appendTestRowToParent,
+    "clean-test-rows": deleteAllTestRows,
   };
 
   const run =

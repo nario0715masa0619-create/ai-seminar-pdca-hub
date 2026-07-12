@@ -35,6 +35,8 @@
 ```
 node scripts/sync-sheets.js init-headers <sheetKey>   # 例: init-headers parent
 node scripts/sync-sheets.js init-all-headers           # 6シートすべてを一括初期化
+node scripts/sync-sheets.js append-test-row            # parentシートにE2E接続確認用のテスト行を1行追加
+node scripts/sync-sheets.js clean-test-rows            # 全シートから seminar_id が "test-e2e-" で始まる行を削除
 ```
 
 ## 今後の予定

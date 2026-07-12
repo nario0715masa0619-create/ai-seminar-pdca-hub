@@ -1,7 +1,14 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { payloadToRow, loadSheetsConfig, appendRow, EXAMPLE_CONFIG_PATH } = require("../scripts/sync-sheets");
+const {
+  payloadToRow,
+  loadSheetsConfig,
+  appendRow,
+  findTestRowIndices,
+  deleteTestRows,
+  EXAMPLE_CONFIG_PATH,
+} = require("../scripts/sync-sheets");
 const { getColumnNames } = require("../scripts/schema-utils");
 
 test("payloadToRow maps fields in docs/schema.md column order", () => {
@@ -102,4 +109,91 @@ test("appendRow throws for an unknown sheetKey", async () => {
     () => appendRow({ sheetKey: "unknown", values: [], config, sheets: {} }),
     /Unknown sheetKey/
   );
+});
+
+test("findTestRowIndices finds only data rows whose seminar_id starts with the prefix", () => {
+  const columns = ["seminar_id", "seminar_name"];
+  const rows = [
+    ["seminar_id", "seminar_name"],
+    ["sem_2026_001", "実データ"],
+    ["test-e2e-001", "テスト行1"],
+    ["test-e2e-002", "テスト行2"],
+  ];
+
+  const indices = findTestRowIndices(rows, columns, "test-e2e-");
+  assert.deepEqual(indices, [2, 3]);
+});
+
+test("findTestRowIndices returns an empty array when no rows match", () => {
+  const columns = ["seminar_id", "seminar_name"];
+  const rows = [
+    ["seminar_id", "seminar_name"],
+    ["sem_2026_001", "実データ"],
+  ];
+
+  assert.deepEqual(findTestRowIndices(rows, columns, "test-e2e-"), []);
+});
+
+test("findTestRowIndices throws when seminar_id column is not present", () => {
+  assert.throws(() => findTestRowIndices([], ["ad_id"], "test-e2e-"), /"seminar_id" column not found/);
+});
+
+test("deleteTestRows deletes matching rows in descending order via batchUpdate", async () => {
+  const config = { spreadsheetId: "sheet-123", sheets: { parent: "parent" } };
+  const batchUpdateCalls = [];
+  const fakeSheets = {
+    spreadsheets: {
+      get: async () => ({ data: { sheets: [{ properties: { title: "parent", sheetId: 42 } }] } }),
+      values: {
+        get: async () => ({
+          data: {
+            values: [
+              ["seminar_id", "seminar_name"],
+              ["sem_2026_001", "実データ"],
+              ["test-e2e-001", "テスト行1"],
+              ["test-e2e-002", "テスト行2"],
+            ],
+          },
+        }),
+      },
+      batchUpdate: async (request) => {
+        batchUpdateCalls.push(request);
+        return { data: {} };
+      },
+    },
+  };
+
+  const result = await deleteTestRows("parent", { config, sheets: fakeSheets });
+
+  assert.deepEqual(result, { deleted: 2 });
+  assert.equal(batchUpdateCalls.length, 1);
+  const requests = batchUpdateCalls[0].requestBody.requests;
+  // 行2, 行3のうち、大きいインデックス(3)から先に削除するリクエストになっていること
+  assert.deepEqual(
+    requests.map((r) => r.deleteDimension.range.startIndex),
+    [3, 2]
+  );
+  assert.ok(requests.every((r) => r.deleteDimension.range.sheetId === 42));
+});
+
+test("deleteTestRows returns deleted: 0 without calling batchUpdate when nothing matches", async () => {
+  const config = { spreadsheetId: "sheet-123", sheets: { parent: "parent" } };
+  let batchUpdateCalled = false;
+  const fakeSheets = {
+    spreadsheets: {
+      get: async () => ({ data: { sheets: [{ properties: { title: "parent", sheetId: 42 } }] } }),
+      values: {
+        get: async () => ({ data: { values: [["seminar_id"], ["sem_2026_001"]] } }),
+      },
+      batchUpdate: async () => {
+        batchUpdateCalled = true;
+        return { data: {} };
+      },
+    },
+  };
+
+  const result = await deleteTestRows("parent", { config, sheets: fakeSheets });
+
+  assert.deepEqual(result, { deleted: 0 });
+  assert.equal(batchUpdateCalled, false);
 });
