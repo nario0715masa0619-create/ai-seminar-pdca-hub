@@ -114,8 +114,29 @@ X（旧Twitter）広告クリエイティブを生成・評価するための入
 - まとめスライド
 - CTAスライド
 
-## 終了後フォローテンプレの入力項目
-- お礼メール本文
-- アンケートリンク
-- 特典の配布リンク
-- 個別相談（商談）への誘導文
+## Follow-up Template
+
+ウェビナー終了後のフォロー文面とシナリオを生成・評価するための入力スキーマ。  
+1行＝1セミナー × 1セグメント × 1シナリオ（例: 参加者向けお礼メール）とする。
+
+### Required Columns
+
+| column | description |
+|---|---|
+| followup_id | フォローシナリオの一意ID |
+| seminar_id | 紐づくセミナーID（Parent Sheetのseminar_id） |
+| segment | 配信対象セグメント（attendee / no_show / requester など） |
+| lead_temperature | リード温度感（hot / warm / cold） |
+| trigger | 配信トリガー（例: webinar_attended / no_show / material_downloaded など） |
+| send_timing | 送信タイミング（例: same_day / next_day / three_days / seven_days） |
+| main_message | このフォローで一番伝えたいメッセージ |
+| summary | セミナー内容のおさらい（1〜3行程度の要約） |
+| offer | フォローで提供するもの（資料 / アーカイブ動画 / 追加コンテンツ / 次回ウェビナー案内など） |
+| primary_cta | 第一CTA（例: 個別相談を予約する / 資料をダウンロードする） |
+| secondary_cta | 第二CTA（例: アーカイブを見る / 次回ウェビナーに申し込む） |
+| suggested_product | 提案したい商品（AIS / VIS / n8n_sales_tool / ai_training など） |
+| subject_pattern | メール件名のパターン（例: archive_focus / survey_focus / urgency_focus） |
+| channel | 配信チャネル（email / phone / chat, まずはemailを想定） |
+| branching_condition | このシナリオに入る条件（例: survey_answered=true AND watch_time>=0.8） |
+| test_variable | 今回の改善対象（subject / body / cta / timing など） |
+| hypothesis | 改善仮説のメモ |
