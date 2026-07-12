@@ -20,7 +20,7 @@
 | `config/` | `sheets.example.json`（実設定 `sheets.json` は `.gitignore` 対象） |
 | `n8n/` | n8nワークフロー雛形と設計メモ（`n8n/README.md`） |
 | `sheets/` | 各シートのヘッダー行CSV（`docs/schema.md` と `npm run check-schema` で同期を検証） |
-| `workflows/` | n8nワークフローの別置き場（`n8n/workflows/` と重複しており、統合方針は未確定） |
+| `workflows/` | n8nワークフローの別置き場（`n8n/workflows/` と重複。新規ワークフローは`n8n/workflows/`に追加する方針で確定、`workflows/`は非推奨） |
 | `.github/workflows/` | CI（push/PR時に `npm test` と `npm run check-schema` を自動実行） |
 
 ## セットアップ
