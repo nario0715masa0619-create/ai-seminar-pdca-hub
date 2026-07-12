@@ -10,6 +10,19 @@
 4. **スライド**: セミナー当日に使用するプレゼンテーション資料。
 5. **終了後フォロー**: セミナー参加者に対する事後アンケートや商談化のためのフォローアップ連絡。
 
+## リポジトリ構成
+| ディレクトリ | 内容 |
+|---|---|
+| `docs/` | スキーマ定義（`schema.md`）、エージェント設計（`agent-design.md`）、n8nワークフローのI/O契約（`n8n-workflows.md`） |
+| `prompts/` | 4エージェント（Acquisition / Seminar Content / Diagnostics / Follow-up）のプロンプト雛形 |
+| `scripts/` | ペイロード生成・Sheets同期・スキーマ整合性チェックなどのNode.jsスクリプト（`npm test` / `npm run check-schema` で検証可能） |
+| `tests/` | `scripts/` 配下の単体テスト（`node:test`、`npm test` で実行） |
+| `config/` | `sheets.example.json`（実設定 `sheets.json` は `.gitignore` 対象） |
+| `n8n/` | n8nワークフロー雛形と設計メモ（`n8n/README.md`） |
+| `sheets/` | 各シートのヘッダー行CSV（`docs/schema.md` と `npm run check-schema` で同期を検証） |
+| `workflows/` | n8nワークフローの別置き場（`n8n/workflows/` と重複しており、統合方針は未確定） |
+| `.github/workflows/` | CI（push/PR時に `npm test` と `npm run check-schema` を自動実行） |
+
 ## セットアップ
 実運用（Google Sheetsへの実書き込み）には、`config/sheets.example.json` をコピーして
 `config/sheets.json` を作成し、実際の `spreadsheetId` とシート名を埋めてください。
