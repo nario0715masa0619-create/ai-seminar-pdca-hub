@@ -3,11 +3,10 @@
  * sync-sheets.js
  *
  * Claude エージェント（Acquisition / Seminar Content / Diagnostics / Follow-up）の
- * 生成結果を、Google Sheets API v4 経由で各シートに append / update するためのひな型。
+ * 生成結果を、Google Sheets API v4 経由で各シートに append するための本番想定インターフェイス。
  *
- * 認証・append・行データの列順変換（scripts/schema-utils.js 経由）は実装済み。
- * 実際のスプレッドシートID・シート名・レンジ（SPREADSHEET_ID / SHEET_RANGES）は
- * まだ TODO として未確定にしている。
+ * スプレッドシートID・シート名はハードコードせず、config/sheets.json（gitignore対象）から読み込む。
+ * 認証情報もハードコードせず、環境変数 GOOGLE_APPLICATION_CREDENTIALS 経由で渡す前提とする。
  *
  * 事前準備:
  *   1. npm install googleapis
@@ -15,34 +14,54 @@
  *   3. サービスアカウントの鍵ファイル(JSON)を取得し、対象スプレッドシートを
  *      サービスアカウントのメールアドレスに共有（編集権限）
  *   4. 環境変数 GOOGLE_APPLICATION_CREDENTIALS に鍵ファイルのパスを設定
+ *   5. config/sheets.example.json を config/sheets.json にコピーし、
+ *      spreadsheetId と各シート名を実際の値に書き換える
  *
  * Usage (将来): node scripts/sync-sheets.js
  */
 
+const fs = require("fs");
+const path = require("path");
 const { getColumnNames } = require("./schema-utils");
 
-// TODO: 対象スプレッドシートIDを設定する（Parent Sheet と5点セットを1ブックにまとめる想定）
-const SPREADSHEET_ID = "TODO_SPREADSHEET_ID";
+const DEFAULT_CONFIG_PATH = path.join(__dirname, "..", "config", "sheets.json");
+const EXAMPLE_CONFIG_PATH = path.join(__dirname, "..", "config", "sheets.example.json");
 
-// TODO: シート名・レンジをシートごとに確定させる（各シートのヘッダー行はdocs/schema.mdに準拠）
-const SHEET_RANGES = {
-  parent: "TODO_ParentSheet!A:Z",
-  x_ads: "TODO_XAdsTemplate!A:Z",
-  lp: "TODO_LPTemplate!A:Z",
-  talk: "TODO_TalkScriptTemplate!A:Z",
-  slides: "TODO_SlideTemplate!A:Z",
-  follow_up: "TODO_FollowUpTemplate!A:Z",
-};
+/**
+ * config/sheets.json（実運用設定）を読み込む。
+ * 読み込み先は環境変数 SHEETS_CONFIG_PATH で上書き可能（テストや複数環境の切り替え用）。
+ * ファイルが存在しない場合は、config/sheets.example.json をコピーして作成するよう促す
+ * 明示的なエラーを投げる。
+ * @returns {{ spreadsheetId: string, sheets: Record<string, string> }}
+ */
+function loadSheetsConfig() {
+  const configPath = process.env.SHEETS_CONFIG_PATH || DEFAULT_CONFIG_PATH;
+
+  if (!fs.existsSync(configPath)) {
+    throw new Error(
+      `Sheets config not found at "${configPath}". ` +
+        `Copy config/sheets.example.json to config/sheets.json and fill in your spreadsheetId / sheet names.`
+    );
+  }
+
+  return JSON.parse(fs.readFileSync(configPath, "utf8"));
+}
 
 /**
  * サービスアカウント認証で Sheets API クライアントを取得する。
- * GOOGLE_APPLICATION_CREDENTIALS 環境変数に鍵ファイルのパスが設定されている前提。
  * googleapis は実際に呼び出すこの関数の中でのみ require する
- * （payloadToRow など googleapis 非依存の関数を、未インストールの環境でもテストできるようにするため）。
+ * （payloadToRow / loadSheetsConfig など googleapis 非依存の関数を、未インストールの環境でもテストできるようにするため）。
+ *
+ * TODO: 認証情報の受け渡し方法を確定させる。現時点では以下のいずれかを想定する。
+ *   - 環境変数 GOOGLE_APPLICATION_CREDENTIALS に鍵ファイルパスを設定する（googleapis のデフォルト挙動、GoogleAuth が自動的に参照する）
+ *   - options.keyFilePath で鍵ファイルパスを明示的に渡す（環境変数を使えないCI等での利用を想定）
+ * @param {{ keyFilePath?: string }} [options]
  */
-async function getSheetsClient() {
+async function getSheetsClient(options = {}) {
   const { google } = require("googleapis");
   const auth = new google.auth.GoogleAuth({
+    // TODO: keyFilePath が未指定の場合、GoogleAuth は GOOGLE_APPLICATION_CREDENTIALS 環境変数に自動フォールバックする。
+    keyFile: options.keyFilePath,
     scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
   const authClient = await auth.getClient();
@@ -50,21 +69,35 @@ async function getSheetsClient() {
 }
 
 /**
- * 指定シートの末尾に1行分の値を追加する。
- * @param {import('googleapis').sheets_v4.Sheets} sheets
- * @param {string} range - SHEET_RANGES のいずれか
- * @param {Array<string|number>} rowValues - 追加する1行分の値（列順は各シートのヘッダーに合わせる）
+ * config/sheets.json から解決した対象シートの末尾に、1行分の値を追加する。
+ * Google Sheets API v4 spreadsheets.values.append のパラメータ仕様に準拠する:
+ * https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets.values/append
+ *
+ * @param {object} params
+ * @param {string} params.sheetKey - "parent" | "x_ads" | "lp" | "talk" | "slides" | "follow_up"
+ * @param {Array<string|number|boolean>} params.values - 追加する1行分の値（列順は docs/schema.md に準拠）
+ * @param {{ spreadsheetId: string, sheets: Record<string, string> }} [params.config] - 省略時は loadSheetsConfig() を呼ぶ
+ * @param {import('googleapis').sheets_v4.Sheets} [params.sheets] - 省略時は getSheetsClient() を呼ぶ
  */
-async function appendRow(sheets, range, rowValues) {
-  // TODO: valueInputOption は生成テキストに数式を含めない前提で "RAW" としている。
-  //       将来的にテンプレ側で数式を使う場合は "USER_ENTERED" を検討する。
-  return sheets.spreadsheets.values.append({
-    spreadsheetId: SPREADSHEET_ID,
-    range,
-    valueInputOption: "RAW",
+async function appendRow({ sheetKey, values, config, sheets }) {
+  const resolvedConfig = config || loadSheetsConfig();
+  const sheetTitle = resolvedConfig.sheets[sheetKey];
+
+  if (!sheetTitle) {
+    throw new Error(`Unknown sheetKey: "${sheetKey}". Check the "sheets" mapping in config/sheets.json.`);
+  }
+
+  const resolvedSheets = sheets || (await getSheetsClient());
+
+  // TODO: valueInputOption は生成テキストに数式(=SUM(...)等)を含めない前提で "USER_ENTERED" としている。
+  //       単純な文字列・数値としてそのまま入れたい場合は "RAW" に変更する。
+  return resolvedSheets.spreadsheets.values.append({
+    spreadsheetId: resolvedConfig.spreadsheetId,
+    range: `${sheetTitle}!A:Z`,
+    valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
-      values: [rowValues],
+      values: [values],
     },
   });
 }
@@ -87,23 +120,28 @@ function payloadToRow(templateKey, templateData) {
 
 /**
  * 統合ペイロード（scripts/build-payload.js の出力形式）を受け取り、
- * 各シートに1行ずつ append する。
+ * config/sheets.json に定義された各シートに1行ずつ append する。
  * @param {object} payload - { parent, x_ads, lp, talk, slides, follow_up }
  */
 async function syncPayloadToSheets(payload) {
-  if (SPREADSHEET_ID === "TODO_SPREADSHEET_ID") {
-    throw new Error("sync-sheets.js is a scaffold. Set SPREADSHEET_ID and SHEET_RANGES before use.");
-  }
-
+  const config = loadSheetsConfig();
   const sheets = await getSheetsClient();
 
-  for (const templateKey of Object.keys(SHEET_RANGES)) {
-    const rowValues = payloadToRow(templateKey, payload[templateKey]);
-    await appendRow(sheets, SHEET_RANGES[templateKey], rowValues);
+  for (const sheetKey of Object.keys(config.sheets)) {
+    const values = payloadToRow(sheetKey, payload[sheetKey]);
+    await appendRow({ sheetKey, values, config, sheets });
   }
 }
 
-module.exports = { getSheetsClient, appendRow, payloadToRow, syncPayloadToSheets };
+module.exports = {
+  loadSheetsConfig,
+  getSheetsClient,
+  appendRow,
+  payloadToRow,
+  syncPayloadToSheets,
+  DEFAULT_CONFIG_PATH,
+  EXAMPLE_CONFIG_PATH,
+};
 
 if (require.main === module) {
   syncPayloadToSheets({}).catch((err) => {

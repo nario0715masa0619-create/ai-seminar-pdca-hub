@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { payloadToRow } = require("../scripts/sync-sheets");
+const { payloadToRow, loadSheetsConfig, appendRow, EXAMPLE_CONFIG_PATH } = require("../scripts/sync-sheets");
 const { getColumnNames } = require("../scripts/schema-utils");
 
 test("payloadToRow maps fields in docs/schema.md column order", () => {
@@ -41,4 +41,59 @@ test("payloadToRow preserves non-string values (numbers, booleans)", () => {
   assert.equal(row[columns.indexOf("lp_visits")], 1200);
   // 0 は falsy だが未定義値ではないため、空文字に変換されず 0 のまま残ることを確認する
   assert.equal(row[columns.indexOf("registrations")], 0);
+});
+
+test("loadSheetsConfig throws a helpful error when config/sheets.json is missing", () => {
+  // config/sheets.json は .gitignore 対象で通常存在しないため、デフォルトパスのままだと必ず失敗する想定
+  delete process.env.SHEETS_CONFIG_PATH;
+  assert.throws(() => loadSheetsConfig(), /Sheets config not found/);
+});
+
+test("loadSheetsConfig loads config/sheets.example.json via SHEETS_CONFIG_PATH override", () => {
+  process.env.SHEETS_CONFIG_PATH = EXAMPLE_CONFIG_PATH;
+  try {
+    const config = loadSheetsConfig();
+    assert.equal(config.spreadsheetId, "YOUR_SPREADSHEET_ID");
+    assert.deepEqual(Object.keys(config.sheets).sort(), [
+      "follow_up",
+      "lp",
+      "parent",
+      "slides",
+      "talk",
+      "x_ads",
+    ]);
+  } finally {
+    delete process.env.SHEETS_CONFIG_PATH;
+  }
+});
+
+test("appendRow calls spreadsheets.values.append with config-resolved spreadsheetId and range", async () => {
+  const config = { spreadsheetId: "sheet-123", sheets: { parent: "parent" } };
+  const calls = [];
+  const fakeSheets = {
+    spreadsheets: {
+      values: {
+        append: async (request) => {
+          calls.push(request);
+          return { data: {} };
+        },
+      },
+    },
+  };
+
+  await appendRow({ sheetKey: "parent", values: ["a", "b"], config, sheets: fakeSheets });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].spreadsheetId, "sheet-123");
+  assert.equal(calls[0].range, "parent!A:Z");
+  assert.equal(calls[0].valueInputOption, "USER_ENTERED");
+  assert.deepEqual(calls[0].requestBody.values, [["a", "b"]]);
+});
+
+test("appendRow throws for an unknown sheetKey", async () => {
+  const config = { spreadsheetId: "sheet-123", sheets: { parent: "parent" } };
+  await assert.rejects(
+    () => appendRow({ sheetKey: "unknown", values: [], config, sheets: {} }),
+    /Unknown sheetKey/
+  );
 });
