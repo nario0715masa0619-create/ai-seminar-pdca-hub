@@ -1,11 +1,34 @@
 # Schema Definition
 
-## 親シートの項目
-- セミナーID / セミナー名
-- ターゲット層 / ペルソナ
-- 開催日時
-- 目標（申込数、商談化数など）
-- ステータス
+## 親シートの項目 (Parent Sheet)
+
+1セミナーを1行で管理する親シート。  
+X広告、LP、トークスクリプト、スライド、終了後フォローの各テンプレは、`seminar_id` をキーにこのシートへ紐づく。
+
+### Required Columns
+
+| column | description |
+|---|---|
+| seminar_id | セミナーの一意ID |
+| seminar_name | セミナー名 |
+| event_date | 開催日 |
+| target_audience | 対象者 |
+| main_message | メイン訴求 |
+| title_type | タイトル型 |
+| main_problem | 主要課題 |
+| promised_value | 提供価値 |
+| primary_cta | 主CTA |
+| secondary_cta | サブCTA |
+| proposed_offer | 提案商品 |
+| acquisition_channel | 流入元 |
+| lp_visits | LP訪問数 |
+| registrations | 申込数 |
+| attendees | 参加数 |
+| survey_responses | アンケ回答数 |
+| consultation_requests | 相談希望数 |
+| opportunities | 商談数 |
+| wins | 受注数 |
+| notes | メモ |
 
 ## X広告テンプレの入力項目
 - キャッチコピー
