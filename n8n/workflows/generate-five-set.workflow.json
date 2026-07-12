@@ -1,0 +1,109 @@
+{
+  "name": "ai-seminar-pdca-hub: Generate Five-Set (Scaffold)",
+  "nodes": [
+    {
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {}
+    },
+    {
+      "id": "build-payload",
+      "name": "Build Payload (TODO: replace with Google Sheets read)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [480, 300],
+      "notes": "TODO: scripts/build-payload.js と同じ形の統合ペイロードJSONを、Parent Sheet + 5点セット各シートから組み立てるノードに差し替える。現時点ではダミー値のみ。",
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            {
+              "name": "seminar_id",
+              "stringValue": "sem_2026_001"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "call-claude-agent",
+      "name": "Call Claude Agent (TODO)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [720, 300],
+      "notes": "TODO: prompts/acquisition.md 等をシステムプロンプトとして、Build Payload の出力をユーザー入力に渡すノードに差し替える。呼び出し方式（Claude API / Claude Code CLI）は docs/agent-design.md 側で確定させてから実装する。"
+    },
+    {
+      "id": "validate-output",
+      "name": "Validate Output (TODO)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [960, 300],
+      "notes": "TODO: Call Claude Agent の出力が、対応する prompts/*.md の Output JSON schema と一致するか検証するノードに差し替える。"
+    },
+    {
+      "id": "sync-to-sheets",
+      "name": "Sync to Sheets (TODO)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 300],
+      "notes": "TODO: scripts/sync-sheets.js の appendRow 相当の処理を行う Google Sheets ノードに差し替える。SPREADSHEET_ID / SHEET_RANGES が確定してから設定する。"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Payload (TODO: replace with Google Sheets read)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Payload (TODO: replace with Google Sheets read)": {
+      "main": [
+        [
+          {
+            "node": "Call Claude Agent (TODO)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude Agent (TODO)": {
+      "main": [
+        [
+          {
+            "node": "Validate Output (TODO)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Output (TODO)": {
+      "main": [
+        [
+          {
+            "node": "Sync to Sheets (TODO)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "ai-seminar-pdca-hub の集客改善/コンテンツ改善/フォロー改善ワークフロー共通の骨格。ノード構成のみを固めた雛形で、認証情報・シートID・Claude呼び出し方式は未実装（各ノードのnotesを参照）。"
+  }
+}
