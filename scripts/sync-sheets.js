@@ -143,6 +143,20 @@ async function initParentSheetHeaders() {
   return appendRow({ sheetKey: "parent", values: headerRow });
 }
 
+/**
+ * E2E接続確認用に、parent シートへ「明らかにテストとわかる」ダミー行を1行 append する。
+ * KPI集計等に影響しないよう、seminar_id は "test-e2e-" プレフィックス付きにする。
+ * @returns {Promise<*>} spreadsheets.values.append のレスポンス
+ */
+async function appendTestRowToParent() {
+  const values = payloadToRow("parent", {
+    seminar_id: "test-e2e-001",
+    seminar_name: "[E2E TEST] sync-sheets.js connectivity check",
+    notes: "scripts/sync-sheets.js appendTestRowToParent() によるE2Eテスト行。削除して問題ない。",
+  });
+  return appendRow({ sheetKey: "parent", values });
+}
+
 module.exports = {
   loadSheetsConfig,
   getSheetsClient,
@@ -150,18 +164,25 @@ module.exports = {
   payloadToRow,
   syncPayloadToSheets,
   initParentSheetHeaders,
+  appendTestRowToParent,
   DEFAULT_CONFIG_PATH,
   EXAMPLE_CONFIG_PATH,
 };
 
 if (require.main === module) {
   const command = process.argv[2];
+  const COMMANDS = {
+    "init-parent-headers": initParentSheetHeaders,
+    "append-test-row": appendTestRowToParent,
+  };
 
   const run =
-    command === "init-parent-headers"
-      ? initParentSheetHeaders()
+    command in COMMANDS
+      ? COMMANDS[command]()
       : command
-        ? Promise.reject(new Error(`Unknown command: "${command}". Expected "init-parent-headers" or no argument.`))
+        ? Promise.reject(
+            new Error(`Unknown command: "${command}". Expected one of: ${Object.keys(COMMANDS).join(", ")}, or no argument.`)
+          )
         : syncPayloadToSheets({});
 
   run
