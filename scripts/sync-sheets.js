@@ -134,13 +134,32 @@ async function syncPayloadToSheets(payload) {
 }
 
 /**
- * parent シートの1行目に、docs/schema.md の Parent Sheet カラム名（英語）をそのままヘッダー行として書き込む。
+ * 指定シートの1行目に、docs/schema.md の該当テンプレのカラム名（英語）をそのままヘッダー行として書き込む。
  * 初回セットアップ時に1回だけ実行する想定（複数回実行するとヘッダー行が重複して追加される点に注意）。
+ * @param {string} sheetKey - "parent" | "x_ads" | "lp" | "talk" | "slides" | "follow_up"
+ * @param {{ config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options] - initAllSheetHeaders から呼ぶ際に config/sheets を使い回すためのもの
  * @returns {Promise<*>} spreadsheets.values.append のレスポンス
  */
-async function initParentSheetHeaders() {
-  const headerRow = getColumnNames("parent");
-  return appendRow({ sheetKey: "parent", values: headerRow });
+async function initSheetHeaders(sheetKey, options = {}) {
+  const headerRow = getColumnNames(sheetKey);
+  return appendRow({ sheetKey, values: headerRow, config: options.config, sheets: options.sheets });
+}
+
+/**
+ * config/sheets.json に定義された全シート（parent, x_ads, lp, talk, slides, follow_up）の
+ * ヘッダー行を一括で初期化する。
+ * @returns {Promise<Array<{ sheetKey: string, result: * }>>}
+ */
+async function initAllSheetHeaders() {
+  const config = loadSheetsConfig();
+  const sheets = await getSheetsClient();
+
+  const results = [];
+  for (const sheetKey of Object.keys(config.sheets)) {
+    const result = await initSheetHeaders(sheetKey, { config, sheets });
+    results.push({ sheetKey, result });
+  }
+  return results;
 }
 
 /**
@@ -163,7 +182,8 @@ module.exports = {
   appendRow,
   payloadToRow,
   syncPayloadToSheets,
-  initParentSheetHeaders,
+  initSheetHeaders,
+  initAllSheetHeaders,
   appendTestRowToParent,
   DEFAULT_CONFIG_PATH,
   EXAMPLE_CONFIG_PATH,
@@ -172,7 +192,14 @@ module.exports = {
 if (require.main === module) {
   const command = process.argv[2];
   const COMMANDS = {
-    "init-parent-headers": initParentSheetHeaders,
+    "init-headers": () => {
+      const sheetKey = process.argv[3];
+      if (!sheetKey) {
+        return Promise.reject(new Error('Usage: node scripts/sync-sheets.js init-headers <sheetKey>'));
+      }
+      return initSheetHeaders(sheetKey);
+    },
+    "init-all-headers": initAllSheetHeaders,
     "append-test-row": appendTestRowToParent,
   };
 
