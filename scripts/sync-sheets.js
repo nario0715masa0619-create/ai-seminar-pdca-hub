@@ -5,8 +5,9 @@
  * Claude エージェント（Acquisition / Seminar Content / Diagnostics / Follow-up）の
  * 生成結果を、Google Sheets API v4 経由で各シートに append / update するためのひな型。
  *
- * 現時点ではサービスアカウント認証と append の骨組みのみを実装し、
- * 実際のスプレッドシートID・シート名・レンジは TODO として未確定にしている。
+ * 認証・append・行データの列順変換（scripts/schema-utils.js 経由）は実装済み。
+ * 実際のスプレッドシートID・シート名・レンジ（SPREADSHEET_ID / SHEET_RANGES）は
+ * まだ TODO として未確定にしている。
  *
  * 事前準備:
  *   1. npm install googleapis
@@ -19,6 +20,7 @@
  */
 
 const { google } = require("googleapis");
+const { getColumnNames } = require("./schema-utils");
 
 // TODO: 対象スプレッドシートIDを設定する（Parent Sheet と5点セットを1ブックにまとめる想定）
 const SPREADSHEET_ID = "TODO_SPREADSHEET_ID";
@@ -66,25 +68,40 @@ async function appendRow(sheets, range, rowValues) {
 }
 
 /**
+ * payload内の1テンプレ分のオブジェクトを、docs/schema.md のカラム順序に沿った
+ * 配列（Sheets append用の1行分の値）に変換する。
+ * 未定義のプロパティは空文字列にする（Sheets側の列がずれないようにするため）。
+ * @param {string} templateKey - parent | x_ads | lp | talk | slides | follow_up
+ * @param {object} templateData - payload[templateKey]
+ * @returns {Array<string|number|boolean>}
+ */
+function payloadToRow(templateKey, templateData) {
+  const columnNames = getColumnNames(templateKey);
+  return columnNames.map((column) => {
+    const value = templateData ? templateData[column] : undefined;
+    return value === undefined || value === null ? "" : value;
+  });
+}
+
+/**
  * 統合ペイロード（scripts/build-payload.js の出力形式）を受け取り、
  * 各シートに1行ずつ append する。
- * TODO: 実際のカラム順序（docs/schema.md準拠）に合わせて rowValues の組み立てを実装する。
  * @param {object} payload - { parent, x_ads, lp, talk, slides, follow_up }
  */
 async function syncPayloadToSheets(payload) {
+  if (SPREADSHEET_ID === "TODO_SPREADSHEET_ID") {
+    throw new Error("sync-sheets.js is a scaffold. Set SPREADSHEET_ID and SHEET_RANGES before use.");
+  }
+
   const sheets = await getSheetsClient();
 
-  // TODO: payload.parent をParent Sheetのカラム順に変換して appendRow(sheets, SHEET_RANGES.parent, [...]) する
-  // TODO: payload.x_ads をX Ads Templateのカラム順に変換して appendRow(sheets, SHEET_RANGES.x_ads, [...]) する
-  // TODO: payload.lp を LP Templateのカラム順に変換して appendRow(sheets, SHEET_RANGES.lp, [...]) する
-  // TODO: payload.talk を Talk Script Templateのカラム順に変換して appendRow(sheets, SHEET_RANGES.talk, [...]) する
-  // TODO: payload.slides を Slide Templateのカラム順に変換して appendRow(sheets, SHEET_RANGES.slides, [...]) する
-  // TODO: payload.follow_up を Follow-up Templateのカラム順に変換して appendRow(sheets, SHEET_RANGES.follow_up, [...]) する
-
-  throw new Error("sync-sheets.js is a scaffold. Implement SPREADSHEET_ID, SHEET_RANGES, and row mapping before use.");
+  for (const templateKey of Object.keys(SHEET_RANGES)) {
+    const rowValues = payloadToRow(templateKey, payload[templateKey]);
+    await appendRow(sheets, SHEET_RANGES[templateKey], rowValues);
+  }
 }
 
-module.exports = { getSheetsClient, appendRow, syncPayloadToSheets };
+module.exports = { getSheetsClient, appendRow, payloadToRow, syncPayloadToSheets };
 
 if (require.main === module) {
   syncPayloadToSheets({}).catch((err) => {
