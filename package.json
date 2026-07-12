@@ -5,7 +5,8 @@
   "description": "Google Sheets を データストアとして、無料AIセミナーの5点セットをClaude Codeエージェントで自動生成・改善するための基盤リポジトリ",
   "scripts": {
     "build-payload": "node scripts/build-payload.js",
-    "sync-sheets": "node scripts/sync-sheets.js"
+    "sync-sheets": "node scripts/sync-sheets.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "googleapis": "^144.0.0"

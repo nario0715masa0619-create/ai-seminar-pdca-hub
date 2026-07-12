@@ -19,7 +19,6 @@
  * Usage (将来): node scripts/sync-sheets.js
  */
 
-const { google } = require("googleapis");
 const { getColumnNames } = require("./schema-utils");
 
 // TODO: 対象スプレッドシートIDを設定する（Parent Sheet と5点セットを1ブックにまとめる想定）
@@ -38,8 +37,11 @@ const SHEET_RANGES = {
 /**
  * サービスアカウント認証で Sheets API クライアントを取得する。
  * GOOGLE_APPLICATION_CREDENTIALS 環境変数に鍵ファイルのパスが設定されている前提。
+ * googleapis は実際に呼び出すこの関数の中でのみ require する
+ * （payloadToRow など googleapis 非依存の関数を、未インストールの環境でもテストできるようにするため）。
  */
 async function getSheetsClient() {
+  const { google } = require("googleapis");
   const auth = new google.auth.GoogleAuth({
     scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
