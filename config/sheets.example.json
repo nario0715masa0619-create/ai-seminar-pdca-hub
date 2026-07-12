@@ -1,0 +1,11 @@
+{
+  "spreadsheetId": "YOUR_SPREADSHEET_ID",
+  "sheets": {
+    "parent": "parent",
+    "x_ads": "x_ads",
+    "lp": "lp",
+    "talk": "talk",
+    "slides": "slides",
+    "follow_up": "follow_up"
+  }
+}

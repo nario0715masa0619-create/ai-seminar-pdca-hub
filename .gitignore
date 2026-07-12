@@ -1,0 +1,8 @@
+node_modules/
+
+# 実際のスプレッドシートID・シート名を含む設定ファイル（config/sheets.example.json をコピーして作成する）
+config/sheets.json
+
+# サービスアカウントの認証鍵など、秘匿情報を含むファイル
+*.key.json
+.env
