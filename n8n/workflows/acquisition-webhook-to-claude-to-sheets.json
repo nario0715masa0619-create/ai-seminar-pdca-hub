@@ -1,0 +1,148 @@
+{
+  "name": "ai-seminar-pdca-hub: Acquisition Flow (MVP)",
+  "nodes": [
+    {
+      "id": "webhook-new-seminar",
+      "name": "Webhook - New Seminar",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "notes": "docs/n8n-workflows.md > Acquisition Flow > Trigger。POST body例: { \"seminar_id\": \"sem_2026_001\" }",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "acquisition/new-seminar",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "build-claude-input",
+      "name": "Build Claude Input (TODO: read parent/x_ads/lp rows from Sheets)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [480, 300],
+      "notes": "docs/n8n-workflows.md > Acquisition Flow > Build Payload に対応。TODO: Google Sheetsノード等でParent Sheet / X Ads Template / LP Template の該当行を取得し、parent/x_ads/lpを実データに差し替える。system_promptフィールドには prompts/acquisition.md の全文を読み込ませる想定（現時点ではファイルパスのプレースホルダ）。",
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            { "name": "seminar_id", "stringValue": "={{ $json.body.seminar_id }}" },
+            { "name": "parent", "stringValue": "={{ JSON.stringify({}) }}" },
+            { "name": "x_ads", "stringValue": "={{ JSON.stringify([]) }}" },
+            { "name": "lp", "stringValue": "={{ JSON.stringify([]) }}" },
+            { "name": "system_prompt_source", "stringValue": "prompts/acquisition.md" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "call-claude-api",
+      "name": "Call Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300],
+      "notes": "docs/n8n-workflows.md > Claude API Call Contract を参照。実URL・実APIキーはここに書かない。x-api-keyはn8nのCredentials（例: Header Auth credential）で注入し、urlはn8n環境変数/Workflow変数で注入する想定のプレースホルダ。",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CLAUDE_API_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "TODO_SET_IN_N8N" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"TODO_SET_MODEL_NAME\", max_tokens: 4096, system: \"TODO: prompts/acquisition.md の全文をここに読み込ませる\", messages: [{ role: \"user\", content: JSON.stringify({ parent: $json.parent, x_ads: $json.x_ads, lp: $json.lp }) }] }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "parse-claude-response",
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300],
+      "notes": "prompts/acquisition.md の Output JSON schema（x_ads配列, lpオブジェクト, next_test_recommendation）としてパースする。scripts/validate-agent-output.js の validateAgentOutput(\"acquisition\", output) 相当の検証をTODOとして残している。",
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// TODO: 実際には $input.first().json からClaudeレスポンス本文（例: content[0].text）を取り出し JSON.parse する\n// const responseText = $input.first().json.content[0].text;\n// const output = JSON.parse(responseText);\n// TODO: scripts/validate-agent-output.js の validateAgentOutput(\"acquisition\", output) 相当の検証をここで行う\nconst output = { x_ads: [], lp: {}, next_test_recommendation: {} };\nreturn [{ json: output }];"
+      }
+    },
+    {
+      "id": "save-x-ads",
+      "name": "Save x_ads to Sheet (TODO: configure Google Sheets credential)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 200],
+      "notes": "TODO: Google Sheetsノード、またはHTTP経由で scripts/sync-sheets.js の appendRow({ sheetKey: \"x_ads\", values: payloadToRow(\"x_ads\", entry) }) 相当を呼ぶノードに差し替える。credential未設定のためNoOpのまま。"
+    },
+    {
+      "id": "save-lp",
+      "name": "Save lp to Sheet (TODO: configure Google Sheets credential)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 400],
+      "notes": "TODO: Google Sheetsノード、またはHTTP経由で scripts/sync-sheets.js の appendRow({ sheetKey: \"lp\", values: payloadToRow(\"lp\", output.lp) }) 相当を呼ぶノードに差し替える。credential未設定のためNoOpのまま。"
+    }
+  ],
+  "connections": {
+    "Webhook - New Seminar": {
+      "main": [
+        [
+          {
+            "node": "Build Claude Input (TODO: read parent/x_ads/lp rows from Sheets)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude Input (TODO: read parent/x_ads/lp rows from Sheets)": {
+      "main": [
+        [
+          {
+            "node": "Call Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude API": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude Response": {
+      "main": [
+        [
+          {
+            "node": "Save x_ads to Sheet (TODO: configure Google Sheets credential)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save lp to Sheet (TODO: configure Google Sheets credential)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Acquisition Flow（docs/n8n-workflows.md参照）のMVP骨組み。Webhook起点でClaude APIをHTTP Requestノードから直接呼び、x_ads/lpへの保存はプレースホルダ。実credential・実URL・実APIキーは一切含まない（各ノードのnotesにTODOを明記）。"
+  }
+}
