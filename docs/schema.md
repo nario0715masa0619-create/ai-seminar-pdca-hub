@@ -53,13 +53,34 @@ X（旧Twitter）広告クリエイティブを生成・評価するための入
 | test_variable | 今回のA/Bテストで変えている要素（headline / first_line / image_text など） |
 | hypothesis | テスト仮説のメモ |
 
-## LPテンプレの入力項目
-- ヒーローセクション（タイトル、サブタイトル、CTA）
-- セミナーのベネフィット（参加する理由）
-- プログラム内容 / タイムテーブル
-- 登壇者情報
-- 参加特典
-- 申込フォーム項目
+## LP Template
+
+セミナーLP（ランディングページ）の構成を生成・評価するための入力スキーマ。  
+1行＝1バリエーション（A/Bテストの各案）とする。
+
+### Required Columns
+
+| column | description |
+|---|---|
+| lp_id | LPバリエーションの一意ID |
+| seminar_id | 紐づくセミナーID（Parent Sheetのseminar_id） |
+| target_audience | 想定ターゲット（例: 中小企業のマーケ責任者） |
+| main_message | メイン訴求（例: 広告改善 / 営業自動化 / AI導入） |
+| title_type | タイトル型（例: problem-solution / how-to / case-study） |
+| hero_title | LPファーストビューのメインタイトル |
+| hero_subtitle | LPファーストビューのサブタイトル |
+| core_benefit | 参加者が得られる主要なベネフィット（1つ） |
+| key_takeaways | 得られることの要点（箇条書き3点などをテキストで持つ） |
+| primary_cta | 主CTAボタンの文言（例: 無料で申し込む） |
+| secondary_cta | サブCTAボタンの文言（任意） |
+| event_summary | 開催概要（日時・形式・参加費などのテキスト） |
+| speaker_info | 登壇者情報（肩書き・実績などの要約テキスト） |
+| social_proof | 実績・導入事例・参加者の声など信頼要素の要約 |
+| faq | FAQ候補（1フィールドにJSONや改行区切りで持つ想定） |
+| form_field_count | フォームの入力項目数（数値） |
+| form_note | フォーム直前に記載する一言（安心感を出す文） |
+| test_variable | 今回のA/Bテストで変えている要素（hero / cta / form_length など） |
+| hypothesis | テスト仮説のメモ |
 
 ## トークスクリプトテンプレの入力項目
 - 導入（アイスブレイク、アジェンダ）
