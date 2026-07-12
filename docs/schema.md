@@ -107,12 +107,38 @@ X（旧Twitter）広告クリエイティブを生成・評価するための入
 | test_variable | 今回の改善対象（intro / case_part / cta_part など） |
 | hypothesis | 改善仮説のメモ |
 
-## スライドテンプレの入力項目
-- タイトルスライド
-- アジェンダスライド
-- コンテンツスライド（図解、テキスト）
-- まとめスライド
-- CTAスライド
+## Slide Template
+
+ウェビナー用スライド資料の構成を生成・評価するための入力スキーマ。  
+1行＝1セミナーにつき1バージョン（投影用資料の全体設計）とする。
+
+### Required Columns
+
+| column | description |
+|---|---|
+| deck_id | スライドデッキの一意ID |
+| seminar_id | 紐づくセミナーID（Parent Sheetのseminar_id） |
+| target_audience | 想定ターゲット（例: 中小企業のマーケ責任者） |
+| main_message | メイン訴求（例: 広告改善 / 営業自動化 / AI導入） |
+| title_type | タイトル型（problem-solution / how-to / case-study など） |
+| deck_goal | この資料のゴール（例: 理解促進 / 信頼獲得 / 個別相談誘導） |
+| core_message | デッキ全体を通して一番伝えたいメッセージ |
+| outline | 章構成（例: cover / agenda / intro / problem / solution / case / service / closing / qanda） |
+| duration_minutes | 想定尺（分） |
+| slide_count | 想定スライド枚数（例: 60） |
+| opener_elements | 冒頭パートに含めたい要素（表紙・注意事項・自己紹介・今日わかること・アジェンダ 等の要約） |
+| problem_story | 問題提起パートのストーリー要約（よくある失敗・あるある・データなど） |
+| solution_story | 解決策パートのストーリー要約（フレームワーク・手順・考え方など） |
+| case_story | 事例パートの構成要約（before / after / 数字・効果など） |
+| service_intro | サービス / 会社紹介パートの要約（どこまで話すか、何枚程度か） |
+| closing_elements | クロージングで必ず入れたい要素（要点まとめ・アンケ案内・次のアクションなど） |
+| primary_cta | 資料内で最も強く打ち出すCTA（例: 個別相談を予約する） |
+| secondary_cta | 補助CTA（例: 資料ダウンロード / 次回ウェビナーに申し込む） |
+| visual_guideline | デザイン方針（例: シンプル / 図多め / 文字少なめ / 実績強め） |
+| one_slide_one_message | 1スライド1メッセージ原則の適用方針（true/falseや補足メモ） |
+| device_assumption | 想定視聴環境（pc_only / pc_mobile_mix など） |
+| test_variable | 今回の改善対象（intro_part / problem_part / closing_cta_slide など） |
+| hypothesis | 改善仮説のメモ |
 
 ## Follow-up Template
 
