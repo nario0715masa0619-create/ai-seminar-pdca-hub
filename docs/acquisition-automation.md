@@ -89,6 +89,9 @@ Parentの実データを読んだ上で広告コピーを生成し、`runAutonom
 
 ## 毎週の投稿PDCA（`scripts/weekly-post-pdca.js`）
 
+運用手順・KPI定義・X広告/LPの実務ルールを含む完全な運用仕様書は
+[`docs/weekly-post-pdca-ops.md`](weekly-post-pdca-ops.md) を参照。本セクションは実装の技術的な要点のみ記載する。
+
 Google Sheetsとは独立した軽量ユーティリティ。毎週 `{ week, ctr, signups, prev_ctr, prev_signups }`
 （KPIは`signups`=LPからのセミナー申込数）を渡すと、状態を判定し、次の投稿案・LP改善案を含む
 レポートJSONを返す。
