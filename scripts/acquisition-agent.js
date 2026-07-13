@@ -16,7 +16,7 @@
  *   - runAutonomousAcquisition(...)         : 上記を束ねるオーケストレータ
  */
 
-const { getRowBySeminarId, updateRowFields } = require("./sheet-rows");
+const { getRowBySeminarId, findAllRowsByValue, updateRowFields } = require("./sheet-rows");
 const { appendRow, payloadToRow } = require("./sync-sheets");
 
 /**
@@ -156,6 +156,43 @@ async function writeLpCandidateToLPs(seminarId, candidate, options = {}) {
 }
 
 /**
+ * X_ads_opsシートから、指定seminar_idの広告のうち status="approved" の行だけを取得する。
+ * X Ads APIへの入稿対象は必ずこの関数の戻り値に限定すること（未承認の案を誤って入稿しないため）。
+ * docs/x-ads-integration.md 参照。
+ * @param {string} seminarId
+ * @param {{ config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options]
+ * @returns {Promise<Array<{ rowNumber: number, row: Record<string, string> }>>}
+ */
+async function getApprovedXAds(seminarId, options = {}) {
+  const matches = await findAllRowsByValue("x_ads_ops", "seminar_id", seminarId, options);
+  return matches.filter((m) => m.row.status === "approved");
+}
+
+/**
+ * X Ads APIから発行されたキャンペーン/広告セット/広告IDを、X_ads_opsの該当行（ad_idで特定）に書き戻す。
+ * X Ads APIの呼び出し自体は行わない（docs/x-ads-integration.md参照、呼び出しはn8n等の外部で行う想定）。
+ * @param {string} adId
+ * @param {{ x_campaign_id?: string, x_adset_id?: string, x_ad_id?: string }} identifiers
+ * @param {{ config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options]
+ * @returns {Promise<{ updatedRange: string }[]>}
+ */
+async function writeAdIdentifiers(adId, identifiers, options = {}) {
+  return updateRowFields("x_ads_ops", "ad_id", adId, identifiers, options);
+}
+
+/**
+ * X Ads APIから取得した実績（impressions/clicks/spend）を、X_ads_opsの該当行（ad_idで特定）に書き戻す。
+ * X Ads APIの呼び出し自体は行わない（docs/x-ads-integration.md参照）。
+ * @param {string} adId
+ * @param {{ impressions?: number, clicks?: number, spend?: number }} metrics
+ * @param {{ config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options]
+ * @returns {Promise<{ updatedRange: string }[]>}
+ */
+async function writeAdMetrics(adId, metrics, options = {}) {
+  return updateRowFields("x_ads_ops", "ad_id", adId, metrics, options);
+}
+
+/**
  * 「このseminar_idで自律集客開始」の起点ロジック全体を束ねるオーケストレータ。
  * 広告コピー/LPコピーそのものの生成は呼び出し側の責務（xAdsCandidates/lpCandidateとして渡す）。
  * @param {string} seminarId
@@ -196,6 +233,9 @@ module.exports = {
   updateParentBudgetProposal,
   writeAdCandidatesToXAds,
   writeLpCandidateToLPs,
+  getApprovedXAds,
+  writeAdIdentifiers,
+  writeAdMetrics,
   runAutonomousAcquisition,
   parseDateOnly,
   formatDateOnly,

@@ -6,6 +6,9 @@ const {
   updateParentBudgetProposal,
   writeAdCandidatesToXAds,
   writeLpCandidateToLPs,
+  getApprovedXAds,
+  writeAdIdentifiers,
+  writeAdMetrics,
   runAutonomousAcquisition,
 } = require("../scripts/acquisition-agent");
 const { getColumnNames } = require("../scripts/schema-utils");
@@ -243,4 +246,99 @@ test("runAutonomousAcquisition orchestrates read, flight proposal, and candidate
   assert.equal(result.lpWritten, 1);
   assert.equal(batchUpdateCalls.length, 1); // Parentへの配信期間書き込み
   assert.equal(appendCalls.length, 4); // X広告3件 + LP1件
+});
+
+function makeFakeSheetsForXAdsRead(rows) {
+  return {
+    spreadsheets: {
+      values: {
+        get: async () => ({ data: { values: rows } }),
+      },
+    },
+  };
+}
+
+test("getApprovedXAds returns only approved rows for the given seminar_id", async () => {
+  const config = { spreadsheetId: "sheet-123", sheets: { x_ads_ops: "X_ads_ops" } };
+  const columnNames = getColumnNames("x_ads_ops");
+  const rowFor = (adId, seminarId, status) =>
+    columnNames.map((c) => {
+      if (c === "ad_id") return adId;
+      if (c === "seminar_id") return seminarId;
+      if (c === "status") return status;
+      return "";
+    });
+  const rows = [
+    columnNames,
+    rowFor("ad-1", "sem_001", "proposed"),
+    rowFor("ad-2", "sem_001", "approved"),
+    rowFor("ad-3", "sem_001", "approved"),
+    rowFor("ad-4", "sem_002", "approved"),
+  ];
+  const sheets = makeFakeSheetsForXAdsRead(rows);
+
+  const approved = await getApprovedXAds("sem_001", { config, sheets });
+  assert.deepEqual(
+    approved.map((r) => r.row.ad_id),
+    ["ad-2", "ad-3"]
+  );
+});
+
+test("writeAdIdentifiers updates the row matched by ad_id, not seminar_id", async () => {
+  const config = { spreadsheetId: "sheet-123", sheets: { x_ads_ops: "X_ads_ops" } };
+  const columnNames = getColumnNames("x_ads_ops");
+  const rowFor = (adId, seminarId) =>
+    columnNames.map((c) => {
+      if (c === "ad_id") return adId;
+      if (c === "seminar_id") return seminarId;
+      return "";
+    });
+  const rows = [columnNames, rowFor("ad-1", "sem_001"), rowFor("ad-2", "sem_001")];
+  const updateCalls = [];
+  const sheets = {
+    spreadsheets: {
+      values: {
+        get: async () => ({ data: { values: rows } }),
+        batchUpdate: async (request) => {
+          updateCalls.push(request);
+          return { data: { responses: request.requestBody.data.map((d) => ({ updatedRange: d.range })) } };
+        },
+      },
+    },
+  };
+
+  await writeAdIdentifiers(
+    "ad-2",
+    { x_campaign_id: "camp-1", x_adset_id: "adset-1", x_ad_id: "adid-1" },
+    { config, sheets }
+  );
+
+  assert.equal(updateCalls.length, 1);
+  const ranges = updateCalls[0].requestBody.data.map((d) => d.range);
+  assert.ok(ranges.every((r) => r.endsWith("3"))); // ad-2 は3行目（ヘッダー+ad-1の次）
+});
+
+test("writeAdMetrics writes impressions/clicks/spend to the row matched by ad_id", async () => {
+  const config = { spreadsheetId: "sheet-123", sheets: { x_ads_ops: "X_ads_ops" } };
+  const columnNames = getColumnNames("x_ads_ops");
+  const rowFor = (adId) => columnNames.map((c) => (c === "ad_id" ? adId : ""));
+  const rows = [columnNames, rowFor("ad-1")];
+  const updateCalls = [];
+  const sheets = {
+    spreadsheets: {
+      values: {
+        get: async () => ({ data: { values: rows } }),
+        batchUpdate: async (request) => {
+          updateCalls.push(request);
+          return { data: { responses: request.requestBody.data.map((d) => ({ updatedRange: d.range })) } };
+        },
+      },
+    },
+  };
+
+  await writeAdMetrics("ad-1", { impressions: 12000, clicks: 180, spend: 3200 }, { config, sheets });
+
+  assert.equal(updateCalls.length, 1);
+  const values = updateCalls[0].requestBody.data.map((d) => d.values[0][0]);
+  assert.deepEqual(values.sort(), [180, 3200, 12000].sort());
 });
