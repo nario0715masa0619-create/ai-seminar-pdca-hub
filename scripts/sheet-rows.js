@@ -128,7 +128,53 @@ async function updateRowFields(sheetKey, seminarId, fields, options = {}) {
       data,
     },
   });
+
+  // USER_ENTERED はスプレッドシートに手入力したのと同じ扱いになるため、"YYYY-MM-DD" のような
+  // 日付らしき文字列は自動的にSheetsのDATE型セルに変換される（値は正しいが、表示形式が
+  // セルごとにバラつくことがある）。書き込んだ列がそのようなセルであれば、表示形式を
+  // "yyyy-mm-dd" に明示的に揃えておく。
+  const dateLikeEntries = Object.entries(fields).filter(([, value]) => /^\d{4}-\d{2}-\d{2}$/.test(String(value)));
+  if (dateLikeEntries.length > 0) {
+    const sheetId = await getSheetIdByTitle(sheetTitle, config, sheets);
+    const requests = dateLikeEntries.map(([columnName]) => {
+      const colIndex = found.columnNames.indexOf(columnName);
+      return {
+        repeatCell: {
+          range: {
+            sheetId,
+            startRowIndex: found.rowNumber - 1,
+            endRowIndex: found.rowNumber,
+            startColumnIndex: colIndex,
+            endColumnIndex: colIndex + 1,
+          },
+          cell: { userEnteredFormat: { numberFormat: { type: "DATE", pattern: "yyyy-mm-dd" } } },
+          fields: "userEnteredFormat.numberFormat",
+        },
+      };
+    });
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId: config.spreadsheetId, requestBody: { requests } });
+  }
+
   return (res.data.responses || []).map((r) => ({ updatedRange: r.updatedRange }));
+}
+
+/**
+ * 指定タイトルのシートタブの数値sheetId（gid）を取得する。
+ * @param {string} sheetTitle
+ * @param {{ spreadsheetId: string }} config
+ * @param {import('googleapis').sheets_v4.Sheets} sheets
+ * @returns {Promise<number>}
+ */
+async function getSheetIdByTitle(sheetTitle, config, sheets) {
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId: config.spreadsheetId,
+    fields: "sheets.properties",
+  });
+  const sheet = (meta.data.sheets || []).find((s) => s.properties.title === sheetTitle);
+  if (!sheet) {
+    throw new Error(`Sheet not found in spreadsheet: "${sheetTitle}"`);
+  }
+  return sheet.properties.sheetId;
 }
 
 /**

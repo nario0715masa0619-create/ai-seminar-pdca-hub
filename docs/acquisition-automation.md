@@ -19,10 +19,12 @@ X広告を使ったセミナー集客のPDCAを、できる限り自律的に回
 | ad_flight_end_date | 配信終了日（自律集客ロジックが提案） |
 | ad_budget_status | proposed / approved |
 
-### X_ads Sheet（新規、テンプレキー `x_ads_ops`）
+### X_ads Sheet（新規、テンプレキー `x_ads_ops`、実タブ名 `X_ads_ops`）
 
 1行＝1広告案。`docs/schema.md`の「X_ads Sheet (Acquisition Automation)」参照。
 既存の「X Ads Template」（テンプレキー`x_ads`、5点セットのA/Bテスト記録用）とは別物。
+Google Sheetsはシート名の大文字小文字を区別しないため、実際のタブ名は`X_ads`ではなく`X_ads_ops`にしている
+（本ドキュメント中では読みやすさのため概念名として「X_ads」と表記する）。
 
 ### LPs Sheet（新規、テンプレキー `lps`）
 

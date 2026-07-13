@@ -177,7 +177,9 @@ X（旧Twitter）広告クリエイティブを生成・評価するための入
 
 **注意**: 上記の「X Ads Template」（テンプレキー `x_ads`）とは別のシート。こちらはX広告の自律集客ワークフロー
 （`docs/acquisition-automation.md`参照）専用の、ステータス管理・将来のX API連携を前提としたシート
-（テンプレキー `x_ads_ops`、Google Sheets上のタブ名は `X_ads`）。
+（テンプレキー `x_ads_ops`、Google Sheets上のタブ名は `X_ads_ops`）。
+Google Sheetsはシート名の大文字小文字を区別しないため、既存の `x_ads` タブと衝突しないよう
+`X_ads_ops` という名前にしている。
 1行＝1広告案とする。
 
 ### Required Columns

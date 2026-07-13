@@ -65,6 +65,7 @@ test("updateParentBudgetProposal sets ad_budget_status to proposed only when it 
   const updateCalls = [];
   const sheets = {
     spreadsheets: {
+      get: async () => ({ data: { sheets: [{ properties: { title: "parent", sheetId: 0 } }] } }),
       values: {
         get: async () => ({ data: { values: [columnNames, rowValues] } }),
         batchUpdate: async (request) => {
@@ -72,6 +73,7 @@ test("updateParentBudgetProposal sets ad_budget_status to proposed only when it 
           return { data: { responses: request.requestBody.data.map((d) => ({ updatedRange: d.range })) } };
         },
       },
+      batchUpdate: async () => ({ data: {} }),
     },
   };
 
@@ -96,6 +98,7 @@ test("updateParentBudgetProposal does not overwrite an already-approved status",
   const updateCalls = [];
   const sheets = {
     spreadsheets: {
+      get: async () => ({ data: { sheets: [{ properties: { title: "parent", sheetId: 0 } }] } }),
       values: {
         get: async () => ({ data: { values: [columnNames, rowValues] } }),
         batchUpdate: async (request) => {
@@ -103,6 +106,7 @@ test("updateParentBudgetProposal does not overwrite an already-approved status",
           return { data: { responses: request.requestBody.data.map((d) => ({ updatedRange: d.range })) } };
         },
       },
+      batchUpdate: async () => ({ data: {} }),
     },
   };
 
@@ -198,6 +202,8 @@ test("runAutonomousAcquisition orchestrates read, flight proposal, and candidate
   const batchUpdateCalls = [];
   const sheets = {
     spreadsheets: {
+      get: async () => ({ data: { sheets: [{ properties: { title: "parent", sheetId: 0 } }] } }),
+      batchUpdate: async () => ({ data: {} }),
       values: {
         get: async () => ({ data: { values: [parentColumns, parentRowValues] } }),
         batchUpdate: async (request) => {
