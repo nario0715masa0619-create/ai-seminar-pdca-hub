@@ -103,7 +103,7 @@ async function updateParentBudgetProposal(seminarId, proposal, seminarRow, optio
   if (!seminarRow.ad_budget_status) {
     fields.ad_budget_status = "proposed";
   }
-  return updateRowFields("parent", seminarId, fields, options);
+  return updateRowFields("parent", "seminar_id", seminarId, fields, options);
 }
 
 /**

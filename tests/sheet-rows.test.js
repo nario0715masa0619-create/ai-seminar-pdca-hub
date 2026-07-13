@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const {
   columnIndexToA1,
   findRowByValue,
+  findAllRowsByValue,
   getRowBySeminarId,
   updateRowFields,
   extendSheetHeader,
@@ -51,6 +52,41 @@ test("findRowByValue returns null when nothing matches", async () => {
   assert.equal(result, null);
 });
 
+test("findAllRowsByValue returns every matching row (e.g. multiple ads for one seminar)", async () => {
+  const config = { spreadsheetId: "sheet-123", sheets: { x_ads_ops: "X_ads_ops" } };
+  const columnNames = require("../scripts/schema-utils").getColumnNames("x_ads_ops");
+  const rowFor = (adId, seminarId, status) =>
+    columnNames.map((c) => {
+      if (c === "ad_id") return adId;
+      if (c === "seminar_id") return seminarId;
+      if (c === "status") return status;
+      return "";
+    });
+  const rows = [
+    columnNames,
+    rowFor("ad-1", "sem_001", "proposed"),
+    rowFor("ad-2", "sem_001", "approved"),
+    rowFor("ad-3", "sem_002", "approved"),
+  ];
+  const sheets = makeFakeSheets(rows);
+
+  const matches = await findAllRowsByValue("x_ads_ops", "seminar_id", "sem_001", { config, sheets });
+  assert.equal(matches.length, 2);
+  assert.deepEqual(
+    matches.map((m) => m.row.ad_id),
+    ["ad-1", "ad-2"]
+  );
+});
+
+test("findAllRowsByValue returns an empty array when nothing matches", async () => {
+  const config = { spreadsheetId: "sheet-123", sheets: { x_ads_ops: "X_ads_ops" } };
+  const columnNames = require("../scripts/schema-utils").getColumnNames("x_ads_ops");
+  const sheets = makeFakeSheets([columnNames]);
+
+  const matches = await findAllRowsByValue("x_ads_ops", "seminar_id", "does-not-exist", { config, sheets });
+  assert.deepEqual(matches, []);
+});
+
 test("getRowBySeminarId delegates to findRowByValue on the parent sheet", async () => {
   const config = { spreadsheetId: "sheet-123", sheets: { parent: "parent" } };
   const columnNames = require("../scripts/schema-utils").getColumnNames("parent");
@@ -84,6 +120,7 @@ test("updateRowFields issues one batchUpdate call with per-field ranges", async 
 
   const result = await updateRowFields(
     "parent",
+    "seminar_id",
     "sem_001",
     { ad_budget_total: 5000, ad_budget_status: "proposed" },
     { config, sheets }
@@ -128,6 +165,7 @@ test("updateRowFields normalizes date-like values to a consistent yyyy-mm-dd dis
 
   await updateRowFields(
     "parent",
+    "seminar_id",
     "sem_001",
     { ad_flight_start_date: "2026-07-31", ad_flight_end_date: "2026-08-06", ad_budget_status: "proposed" },
     { config, sheets }
@@ -164,7 +202,7 @@ test("updateRowFields skips the format-fixing request when no date-like values a
     },
   };
 
-  await updateRowFields("parent", "sem_001", { ad_budget_status: "proposed" }, { config, sheets });
+  await updateRowFields("parent", "seminar_id", "sem_001", { ad_budget_status: "proposed" }, { config, sheets });
   assert.equal(formatBatchUpdateCalled, false);
 });
 
@@ -174,7 +212,7 @@ test("updateRowFields throws when the seminar_id row is not found", async () => 
   const sheets = makeFakeSheets([columnNames]);
 
   await assert.rejects(
-    () => updateRowFields("parent", "does-not-exist", { notes: "x" }, { config, sheets }),
+    () => updateRowFields("parent", "seminar_id", "does-not-exist", { notes: "x" }, { config, sheets }),
     /not found/
   );
 });

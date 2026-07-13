@@ -72,6 +72,49 @@ async function findRowByValue(sheetKey, columnName, value, options = {}) {
 }
 
 /**
+ * 指定シートの中から、columnName の値が value と一致する「すべての」データ行を探す。
+ * X_ads_opsのように、同じseminar_idの行が複数存在するシートで使う。
+ * @param {string} sheetKey
+ * @param {string} columnName
+ * @param {string} value
+ * @param {{ config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options]
+ * @returns {Promise<Array<{ rowNumber: number, row: Record<string, string>, columnNames: string[] }>>}
+ */
+async function findAllRowsByValue(sheetKey, columnName, value, options = {}) {
+  const config = options.config || loadSheetsConfig();
+  const sheets = options.sheets || (await getSheetsClient());
+  const sheetTitle = config.sheets[sheetKey];
+
+  if (!sheetTitle) {
+    throw new Error(`Unknown sheetKey: "${sheetKey}". Check the "sheets" mapping in config/sheets.json.`);
+  }
+
+  const columnNames = getColumnNames(sheetKey);
+  const targetIndex = columnNames.indexOf(columnName);
+  if (targetIndex === -1) {
+    throw new Error(`"${columnName}" column not found for sheetKey "${sheetKey}"`);
+  }
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: config.spreadsheetId,
+    range: `${sheetTitle}!A:Z`,
+  });
+  const rows = res.data.values || [];
+
+  const matches = [];
+  for (let i = 1; i < rows.length; i += 1) {
+    if (rows[i][targetIndex] === value) {
+      const row = {};
+      columnNames.forEach((column, colIndex) => {
+        row[column] = rows[i][colIndex] !== undefined ? rows[i][colIndex] : "";
+      });
+      matches.push({ rowNumber: i + 1, row, columnNames });
+    }
+  }
+  return matches;
+}
+
+/**
  * Parent Sheetから、指定 seminar_id の行を取得する。
  * @param {string} seminarId
  * @param {{ config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options]
@@ -82,16 +125,19 @@ async function getRowBySeminarId(seminarId, options = {}) {
 }
 
 /**
- * 指定シートの、seminar_idが一致する行のうち、fieldsで渡された列だけを更新する
- * （他の列には触れない）。列ごとに個別のrangeでUPDATEするため、行全体を読み直して
- * 書き戻すよりも既存データを壊しにくい。
+ * 指定シートの、matchColumnの値がmatchValueと一致する「最初の」行のうち、
+ * fieldsで渡された列だけを更新する（他の列には触れない）。
+ * 列ごとに個別のrangeでUPDATEするため、行全体を読み直して書き戻すよりも既存データを壊しにくい。
+ * 同じmatchColumn/matchValueの組み合わせで複数行がありうるシート（例: X_ads_opsのseminar_id）で
+ * 使う場合は、より一意な列（例: ad_id）をmatchColumnに指定すること。
  * @param {string} sheetKey
- * @param {string} seminarId
+ * @param {string} matchColumn - 行を特定するための列名（例: "seminar_id", "ad_id"）
+ * @param {string} matchValue - matchColumnと一致させたい値
  * @param {Record<string, string|number>} fields - { 列名: 新しい値 } のマップ
  * @param {{ config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options]
  * @returns {Promise<{ updatedRange: string }[]>}
  */
-async function updateRowFields(sheetKey, seminarId, fields, options = {}) {
+async function updateRowFields(sheetKey, matchColumn, matchValue, fields, options = {}) {
   const config = options.config || loadSheetsConfig();
   const sheets = options.sheets || (await getSheetsClient());
   const sheetTitle = config.sheets[sheetKey];
@@ -100,9 +146,9 @@ async function updateRowFields(sheetKey, seminarId, fields, options = {}) {
     throw new Error(`Unknown sheetKey: "${sheetKey}". Check the "sheets" mapping in config/sheets.json.`);
   }
 
-  const found = await findRowByValue(sheetKey, "seminar_id", seminarId, { config, sheets });
+  const found = await findRowByValue(sheetKey, matchColumn, matchValue, { config, sheets });
   if (!found) {
-    throw new Error(`Row with seminar_id "${seminarId}" not found in sheet "${sheetTitle}"`);
+    throw new Error(`Row with ${matchColumn}="${matchValue}" not found in sheet "${sheetTitle}"`);
   }
 
   const data = Object.entries(fields).map(([columnName, value]) => {
@@ -236,6 +282,7 @@ async function createSheetIfNotExists(sheetTitle, options = {}) {
 module.exports = {
   columnIndexToA1,
   findRowByValue,
+  findAllRowsByValue,
   getRowBySeminarId,
   updateRowFields,
   extendSheetHeader,
