@@ -342,3 +342,167 @@ test("writeAdMetrics writes impressions/clicks/spend to the row matched by ad_id
   const values = updateCalls[0].requestBody.data.map((d) => d.values[0][0]);
   assert.deepEqual(values.sort(), [180, 3200, 12000].sort());
 });
+
+const {
+  computeAdMetrics,
+  aggregateAdMetrics,
+  computeFunnelMetrics,
+  computeCPA,
+  diagnoseBottleneck,
+  appendToParentNotes,
+  runPdcaCheck,
+} = require("../scripts/acquisition-agent");
+
+test("computeAdMetrics calculates CTR and CPC", () => {
+  const result = computeAdMetrics({ impressions: 10000, clicks: 150, spend: 3000 });
+  assert.deepEqual(result, { impressions: 10000, clicks: 150, spend: 3000, ctr: 0.015, cpc: 20 });
+});
+
+test("computeAdMetrics returns null CTR/CPC when denominators are zero", () => {
+  const result = computeAdMetrics({ impressions: 0, clicks: 0, spend: 0 });
+  assert.equal(result.ctr, null);
+  assert.equal(result.cpc, null);
+});
+
+test("aggregateAdMetrics sums multiple ad rows before computing CTR/CPC", () => {
+  const result = aggregateAdMetrics([
+    { impressions: 5000, clicks: 50, spend: 1000 },
+    { impressions: 5000, clicks: 100, spend: 2000 },
+  ]);
+  assert.deepEqual(result, { impressions: 10000, clicks: 150, spend: 3000, ctr: 0.015, cpc: 20 });
+});
+
+test("aggregateAdMetrics handles an empty array without dividing by zero", () => {
+  const result = aggregateAdMetrics([]);
+  assert.deepEqual(result, { impressions: 0, clicks: 0, spend: 0, ctr: null, cpc: null });
+});
+
+test("computeFunnelMetrics calculates LP CVR from lp_visits/registrations", () => {
+  const result = computeFunnelMetrics({ lp_visits: 500, registrations: 100 });
+  assert.deepEqual(result, { lp_visits: 500, registrations: 100, lp_cvr: 0.2 });
+});
+
+test("computeCPA divides spend by registrations, or returns null when there are none", () => {
+  assert.equal(computeCPA(3000, 100), 30);
+  assert.equal(computeCPA(3000, 0), null);
+});
+
+test("diagnoseBottleneck flags the ad side when CTR is below threshold", () => {
+  const result = diagnoseBottleneck({ ctr: 0.005, lpCvr: 0.25 });
+  assert.equal(result.bottleneck, "ad");
+  assert.equal(result.issues.length, 1);
+  assert.equal(result.issues[0].metric, "ctr");
+});
+
+test("diagnoseBottleneck flags the lp side when LP CVR is below threshold", () => {
+  const result = diagnoseBottleneck({ ctr: 0.02, lpCvr: 0.1 });
+  assert.equal(result.bottleneck, "lp");
+  assert.equal(result.issues[0].metric, "lp_cvr");
+});
+
+test("diagnoseBottleneck reports no bottleneck when both metrics clear the threshold", () => {
+  const result = diagnoseBottleneck({ ctr: 0.02, lpCvr: 0.3 });
+  assert.equal(result.bottleneck, "none");
+  assert.deepEqual(result.issues, []);
+});
+
+test("diagnoseBottleneck reports insufficient_data when both metrics are null", () => {
+  const result = diagnoseBottleneck({ ctr: null, lpCvr: null });
+  assert.equal(result.bottleneck, "insufficient_data");
+});
+
+test("diagnoseBottleneck respects custom thresholds", () => {
+  const result = diagnoseBottleneck({ ctr: 0.015, lpCvr: 0.3 }, { ctrThreshold: 0.02 });
+  assert.equal(result.bottleneck, "ad");
+});
+
+test("appendToParentNotes appends a dated line while preserving existing notes", async () => {
+  const config = { spreadsheetId: "sheet-123", sheets: { parent: "parent" } };
+  const columnNames = getColumnNames("parent");
+  const rowValues = columnNames.map((c) => {
+    if (c === "seminar_id") return "sem_001";
+    if (c === "notes") return "既存メモ";
+    return "";
+  });
+  const updateCalls = [];
+  const sheets = {
+    spreadsheets: {
+      get: async () => ({ data: { sheets: [{ properties: { title: "parent", sheetId: 0 } }] } }),
+      batchUpdate: async () => ({ data: {} }),
+      values: {
+        get: async () => ({ data: { values: [columnNames, rowValues] } }),
+        batchUpdate: async (request) => {
+          updateCalls.push(request);
+          return { data: { responses: request.requestBody.data.map((d) => ({ updatedRange: d.range })) } };
+        },
+      },
+    },
+  };
+
+  await appendToParentNotes("sem_001", "テスト診断コメント", { config, sheets });
+
+  const newNotes = updateCalls[0].requestBody.data[0].values[0][0];
+  assert.ok(newNotes.startsWith("既存メモ\n["));
+  assert.ok(newNotes.includes("テスト診断コメント"));
+});
+
+test("runPdcaCheck aggregates approved ad metrics, funnel metrics, and writes a diagnosis note", async () => {
+  const config = {
+    spreadsheetId: "sheet-123",
+    sheets: { parent: "parent", x_ads_ops: "X_ads_ops" },
+  };
+  const parentColumns = getColumnNames("parent");
+  const parentRowValues = parentColumns.map((c) => {
+    if (c === "seminar_id") return "sem_001";
+    if (c === "lp_visits") return "500";
+    if (c === "registrations") return "100";
+    return "";
+  });
+  const xAdsColumns = getColumnNames("x_ads_ops");
+  const adRow = (adId, status, impressions, clicks, spend) =>
+    xAdsColumns.map((c) => {
+      if (c === "ad_id") return adId;
+      if (c === "seminar_id") return "sem_001";
+      if (c === "status") return status;
+      if (c === "impressions") return String(impressions);
+      if (c === "clicks") return String(clicks);
+      if (c === "spend") return String(spend);
+      return "";
+    });
+  const xAdsRows = [
+    xAdsColumns,
+    adRow("ad-1", "approved", 6000, 90, 1500),
+    adRow("ad-2", "approved", 4000, 60, 1500),
+    adRow("ad-3", "proposed", 999999, 999999, 999999), // 未承認のため集計対象外であることを確認する
+  ];
+
+  const updateCalls = [];
+  const sheets = {
+    spreadsheets: {
+      get: async () => ({ data: { sheets: [{ properties: { title: "parent", sheetId: 0 } }] } }),
+      batchUpdate: async () => ({ data: {} }),
+      values: {
+        get: async (request) => {
+          if (request.range.startsWith("parent")) {
+            return { data: { values: [parentColumns, parentRowValues] } };
+          }
+          return { data: { values: xAdsRows } };
+        },
+        batchUpdate: async (request) => {
+          updateCalls.push(request);
+          return { data: { responses: request.requestBody.data.map((d) => ({ updatedRange: d.range })) } };
+        },
+      },
+    },
+  };
+
+  const result = await runPdcaCheck("sem_001", { config, sheets });
+
+  assert.deepEqual(result.adMetrics, { impressions: 10000, clicks: 150, spend: 3000, ctr: 0.015, cpc: 20 });
+  assert.deepEqual(result.funnel, { lp_visits: 500, registrations: 100, lp_cvr: 0.2 });
+  assert.equal(result.cpa, 30);
+  // CTR 1.5% > 目安1%、LP CVR 20% >= 目安20% のため、ボトルネックなし
+  assert.equal(result.diagnosis.bottleneck, "none");
+  // status="proposed"のad-3（異常値999999）が集計対象外であることを確認する
+  assert.equal(result.adMetrics.impressions, 10000);
+});

@@ -193,6 +193,165 @@ async function writeAdMetrics(adId, metrics, options = {}) {
 }
 
 /**
+ * 承認済み広告1件分の impressions/clicks/spend から CTR・CPC を算出する。
+ * 分母が0（または未計測）の場合は null を返す（ゼロ除算を避けるため）。
+ * 純粋関数（Sheets API非依存）。
+ * @param {{ impressions?: string|number, clicks?: string|number, spend?: string|number }} adRow
+ * @returns {{ impressions: number, clicks: number, spend: number, ctr: number|null, cpc: number|null }}
+ */
+function computeAdMetrics(adRow) {
+  const impressions = Number(adRow.impressions) || 0;
+  const clicks = Number(adRow.clicks) || 0;
+  const spend = Number(adRow.spend) || 0;
+  return {
+    impressions,
+    clicks,
+    spend,
+    ctr: impressions > 0 ? clicks / impressions : null,
+    cpc: clicks > 0 ? spend / clicks : null,
+  };
+}
+
+/**
+ * 承認済み広告（複数）の impressions/clicks/spend を合算し、全体のCTR・CPCを算出する。
+ * 純粋関数（Sheets API非依存）。
+ * @param {Array<{ impressions?: string|number, clicks?: string|number, spend?: string|number }>} adRows
+ * @returns {{ impressions: number, clicks: number, spend: number, ctr: number|null, cpc: number|null }}
+ */
+function aggregateAdMetrics(adRows) {
+  const totals = adRows.reduce(
+    (acc, row) => {
+      acc.impressions += Number(row.impressions) || 0;
+      acc.clicks += Number(row.clicks) || 0;
+      acc.spend += Number(row.spend) || 0;
+      return acc;
+    },
+    { impressions: 0, clicks: 0, spend: 0 }
+  );
+  return {
+    ...totals,
+    ctr: totals.impressions > 0 ? totals.clicks / totals.impressions : null,
+    cpc: totals.clicks > 0 ? totals.spend / totals.clicks : null,
+  };
+}
+
+/**
+ * Parent行の lp_visits / registrations からLP CVRを算出する。
+ * 純粋関数（Sheets API非依存）。
+ * @param {{ lp_visits?: string|number, registrations?: string|number }} seminarRow
+ * @returns {{ lp_visits: number, registrations: number, lp_cvr: number|null }}
+ */
+function computeFunnelMetrics(seminarRow) {
+  const lpVisits = Number(seminarRow.lp_visits) || 0;
+  const registrations = Number(seminarRow.registrations) || 0;
+  return {
+    lp_visits: lpVisits,
+    registrations,
+    lp_cvr: lpVisits > 0 ? registrations / lpVisits : null,
+  };
+}
+
+/**
+ * 広告費総額と申込数からCPA（1申込あたりのコスト）を算出する。
+ * 純粋関数（Sheets API非依存）。
+ * @param {number} totalSpend
+ * @param {number} registrations
+ * @returns {number|null}
+ */
+function computeCPA(totalSpend, registrations) {
+  return registrations > 0 ? totalSpend / registrations : null;
+}
+
+/**
+ * CTR・LP CVRを既定の目安値と比較し、ボトルネックが広告側("ad")かLP側("lp")かを判定する。
+ * 目安値（CTR 1% / LP CVR 20%）は暫定値。実績データが蓄積したら調整すること
+ * （docs/x-ads-integration.md参照）。純粋関数（Sheets API非依存）。
+ * @param {{ ctr: number|null, lpCvr: number|null }} metrics
+ * @param {{ ctrThreshold?: number, cvrThreshold?: number }} [thresholds]
+ * @returns {{ bottleneck: "ad"|"lp"|"none"|"insufficient_data", issues: Array<object>, summary: string }}
+ */
+function diagnoseBottleneck({ ctr, lpCvr }, thresholds = {}) {
+  const ctrThreshold = thresholds.ctrThreshold ?? 0.01;
+  const cvrThreshold = thresholds.cvrThreshold ?? 0.2;
+
+  if (ctr === null && lpCvr === null) {
+    return {
+      bottleneck: "insufficient_data",
+      issues: [],
+      summary: "実績データ（インプレッション/クリックやLP訪問数/申込数）がまだ揃っていないため診断できません。",
+    };
+  }
+
+  const issues = [];
+  if (ctr !== null && ctr < ctrThreshold) {
+    issues.push({
+      stage: "ad",
+      metric: "ctr",
+      value: ctr,
+      message: `CTRが目安値${(ctrThreshold * 100).toFixed(1)}%を下回っています（実績${(ctr * 100).toFixed(2)}%）。広告クリエイティブ（見出し・訴求軸）の見直しを検討してください。`,
+    });
+  }
+  if (lpCvr !== null && lpCvr < cvrThreshold) {
+    issues.push({
+      stage: "lp",
+      metric: "lp_cvr",
+      value: lpCvr,
+      message: `LPのCVRが目安値${(cvrThreshold * 100).toFixed(1)}%を下回っています（実績${(lpCvr * 100).toFixed(2)}%）。LPコピー（hero・ベネフィット訴求）の見直しを検討してください。`,
+    });
+  }
+
+  if (issues.length === 0) {
+    return {
+      bottleneck: "none",
+      issues: [],
+      summary: "現状、CTR・LP CVRともに目安値を上回っており、明確なボトルネックは見られません。",
+    };
+  }
+  return { bottleneck: issues[0].stage, issues, summary: issues.map((i) => i.message).join(" ") };
+}
+
+/**
+ * Parent Sheetの notes 列に、日付付きの1行を追記する（既存のnotesは残す）。
+ * @param {string} seminarId
+ * @param {string} note
+ * @param {{ config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options]
+ * @returns {Promise<{ updatedRange: string }[]>}
+ */
+async function appendToParentNotes(seminarId, note, options = {}) {
+  const seminarRow = await getSeminarRow(seminarId, options);
+  const existingNotes = seminarRow.notes || "";
+  const timestamp = new Date().toISOString().slice(0, 10);
+  const updatedNotes = existingNotes ? `${existingNotes}\n[${timestamp}] ${note}` : `[${timestamp}] ${note}`;
+  return updateRowFields("parent", "seminar_id", seminarId, { notes: updatedNotes }, options);
+}
+
+/**
+ * PDCAの「Check」ステップ: 承認済み広告の実績とParentのファネル実績から
+ * CTR/CPC/LP CVR/CPAを算出し、ボトルネックを診断してParent.notesに追記する。
+ * 新しい広告案/LP改訂案の生成（「Act」ステップ）はこの関数の責務外
+ * （診断結果のdiagnosis.bottleneckを見て、呼び出し側がwriteAdCandidatesToXAds/writeLpCandidateToLPsを使う）。
+ * @param {string} seminarId
+ * @param {{ config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options]
+ * @returns {Promise<{ seminarId: string, adMetrics: object, funnel: object, cpa: number|null, diagnosis: object }>}
+ */
+async function runPdcaCheck(seminarId, options = {}) {
+  const seminarRow = await getSeminarRow(seminarId, options);
+  const approvedAds = await getApprovedXAds(seminarId, options);
+  const adMetrics = aggregateAdMetrics(approvedAds.map((m) => m.row));
+  const funnel = computeFunnelMetrics(seminarRow);
+  const cpa = computeCPA(adMetrics.spend, funnel.registrations);
+  const diagnosis = diagnoseBottleneck({ ctr: adMetrics.ctr, lpCvr: funnel.lp_cvr });
+
+  const cpaText = cpa !== null ? `${Math.round(cpa)}円` : "算出不可";
+  const ctrText = adMetrics.ctr !== null ? `${(adMetrics.ctr * 100).toFixed(2)}%` : "算出不可";
+  const cvrText = funnel.lp_cvr !== null ? `${(funnel.lp_cvr * 100).toFixed(2)}%` : "算出不可";
+  const note = `PDCA診断: ${diagnosis.summary} (CTR=${ctrText}, LP CVR=${cvrText}, CPA=${cpaText})`;
+  await appendToParentNotes(seminarId, note, options);
+
+  return { seminarId, adMetrics, funnel, cpa, diagnosis };
+}
+
+/**
  * 「このseminar_idで自律集客開始」の起点ロジック全体を束ねるオーケストレータ。
  * 広告コピー/LPコピーそのものの生成は呼び出し側の責務（xAdsCandidates/lpCandidateとして渡す）。
  * @param {string} seminarId
@@ -236,6 +395,13 @@ module.exports = {
   getApprovedXAds,
   writeAdIdentifiers,
   writeAdMetrics,
+  computeAdMetrics,
+  aggregateAdMetrics,
+  computeFunnelMetrics,
+  computeCPA,
+  diagnoseBottleneck,
+  appendToParentNotes,
+  runPdcaCheck,
   runAutonomousAcquisition,
   parseDateOnly,
   formatDateOnly,
