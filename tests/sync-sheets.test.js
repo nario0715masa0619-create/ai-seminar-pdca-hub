@@ -70,10 +70,12 @@ test("loadSheetsConfig loads config/sheets.example.json via SHEETS_CONFIG_PATH o
     assert.deepEqual(Object.keys(config.sheets).sort(), [
       "follow_up",
       "lp",
+      "lps",
       "parent",
       "slides",
       "talk",
       "x_ads",
+      "x_ads_ops",
     ]);
   } finally {
     delete process.env.SHEETS_CONFIG_PATH;

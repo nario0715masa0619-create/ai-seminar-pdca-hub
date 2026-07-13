@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { getSchema, getColumnNames } = require("../scripts/schema-utils");
 
-const EXPECTED_TEMPLATE_KEYS = ["parent", "x_ads", "lp", "talk", "slides", "follow_up"];
+const EXPECTED_TEMPLATE_KEYS = ["parent", "x_ads", "lp", "talk", "slides", "follow_up", "x_ads_ops", "lps"];
 
 test("getSchema returns all templates defined in docs/schema.md", () => {
   const schema = getSchema();

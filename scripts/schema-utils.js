@@ -26,6 +26,8 @@ const HEADING_TO_TEMPLATE_KEY = {
   "Talk Script Template": "talk",
   "Slide Template": "slides",
   "Follow-up Template": "follow_up",
+  "X_ads Sheet (Acquisition Automation)": "x_ads_ops",
+  "LPs Sheet (Acquisition Automation)": "lps",
 };
 
 /**
