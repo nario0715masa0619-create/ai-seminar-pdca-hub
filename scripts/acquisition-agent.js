@@ -20,6 +20,12 @@ const { getRowBySeminarId, findAllRowsByValue, updateRowFields } = require("./sh
 const { appendRow, payloadToRow } = require("./sync-sheets");
 
 /**
+ * CPA（1申込あたりのコスト）の目標値（円）。
+ * 変更したくなった場合はこの定数だけを更新すればよい（他の箇所に直書きしない）。
+ */
+const CPA_TARGET = 500;
+
+/**
  * Parent Sheetから、指定 seminar_id の行を読み込む。
  * @param {string} seminarId
  * @param {{ config?: object, sheets?: import('googleapis').sheets_v4.Sheets }} [options]
@@ -263,6 +269,32 @@ function computeCPA(totalSpend, registrations) {
 }
 
 /**
+ * CPAを目標値（CPA_TARGET）と比較し、目標内か超過かを判定する。
+ * 純粋関数（Sheets API非依存）。
+ * @param {number|null} cpa - computeCPA() の戻り値
+ * @param {number} [target] - 省略時はCPA_TARGET（500円）
+ * @returns {{ withinTarget: boolean|null, target: number, message: string }}
+ */
+function evaluateCPA(cpa, target = CPA_TARGET) {
+  if (cpa === null) {
+    return {
+      withinTarget: null,
+      target,
+      message: `CPAが未算出のため、目標${target}円との比較はできません。`,
+    };
+  }
+  const rounded = Math.round(cpa);
+  if (cpa <= target) {
+    return { withinTarget: true, target, message: `CPAが${rounded}円で目標${target}円以内です。` };
+  }
+  return {
+    withinTarget: false,
+    target,
+    message: `CPAが${rounded}円で目標${target}円を超過しています（要注意）。`,
+  };
+}
+
+/**
  * CTR・LP CVRを既定の目安値と比較し、ボトルネックが広告側("ad")かLP側("lp")かを判定する。
  * 目安値（CTR 1% / LP CVR 20%）は暫定値。実績データが蓄積したら調整すること
  * （docs/x-ads-integration.md参照）。純粋関数（Sheets API非依存）。
@@ -342,13 +374,23 @@ async function runPdcaCheck(seminarId, options = {}) {
   const cpa = computeCPA(adMetrics.spend, funnel.registrations);
   const diagnosis = diagnoseBottleneck({ ctr: adMetrics.ctr, lpCvr: funnel.lp_cvr });
 
+  const cpaEvaluation = evaluateCPA(cpa);
+
   const cpaText = cpa !== null ? `${Math.round(cpa)}円` : "算出不可";
   const ctrText = adMetrics.ctr !== null ? `${(adMetrics.ctr * 100).toFixed(2)}%` : "算出不可";
   const cvrText = funnel.lp_cvr !== null ? `${(funnel.lp_cvr * 100).toFixed(2)}%` : "算出不可";
-  const note = `PDCA診断: ${diagnosis.summary} (CTR=${ctrText}, LP CVR=${cvrText}, CPA=${cpaText})`;
+
+  const noteLines = [
+    `PDCA診断: ${diagnosis.summary} (CTR=${ctrText}, LP CVR=${cvrText}, CPA=${cpaText})`,
+    cpaEvaluation.message,
+  ];
+  if (cpaEvaluation.withinTarget === false) {
+    noteLines.push("CPA観点からも改善が必要（広告費が高すぎる）");
+  }
+  const note = noteLines.join("\n");
   await appendToParentNotes(seminarId, note, options);
 
-  return { seminarId, adMetrics, funnel, cpa, diagnosis };
+  return { seminarId, adMetrics, funnel, cpa, cpaEvaluation, diagnosis };
 }
 
 /**
@@ -399,6 +441,8 @@ module.exports = {
   aggregateAdMetrics,
   computeFunnelMetrics,
   computeCPA,
+  evaluateCPA,
+  CPA_TARGET,
   diagnoseBottleneck,
   appendToParentNotes,
   runPdcaCheck,

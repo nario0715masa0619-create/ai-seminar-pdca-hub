@@ -348,6 +348,8 @@ const {
   aggregateAdMetrics,
   computeFunnelMetrics,
   computeCPA,
+  evaluateCPA,
+  CPA_TARGET,
   diagnoseBottleneck,
   appendToParentNotes,
   runPdcaCheck,
@@ -385,6 +387,37 @@ test("computeFunnelMetrics calculates LP CVR from lp_visits/registrations", () =
 test("computeCPA divides spend by registrations, or returns null when there are none", () => {
   assert.equal(computeCPA(3000, 100), 30);
   assert.equal(computeCPA(3000, 0), null);
+});
+
+test("evaluateCPA reports within-target for CPA at or below CPA_TARGET", () => {
+  assert.equal(CPA_TARGET, 500);
+  assert.deepEqual(evaluateCPA(50), {
+    withinTarget: true,
+    target: 500,
+    message: "CPAが50円で目標500円以内です。",
+  });
+  // ちょうど目標値の場合も「目標内」扱いとする（CPA <= 500）
+  assert.equal(evaluateCPA(500).withinTarget, true);
+});
+
+test("evaluateCPA reports exceeding-target for CPA above CPA_TARGET", () => {
+  assert.deepEqual(evaluateCPA(700), {
+    withinTarget: false,
+    target: 500,
+    message: "CPAが700円で目標500円を超過しています（要注意）。",
+  });
+});
+
+test("evaluateCPA returns withinTarget: null when CPA is not computable", () => {
+  const result = evaluateCPA(null);
+  assert.equal(result.withinTarget, null);
+  assert.match(result.message, /未算出/);
+});
+
+test("evaluateCPA respects a custom target override", () => {
+  const result = evaluateCPA(300, 200);
+  assert.equal(result.withinTarget, false);
+  assert.equal(result.target, 200);
 });
 
 test("diagnoseBottleneck flags the ad side when CTR is below threshold", () => {
@@ -505,4 +538,69 @@ test("runPdcaCheck aggregates approved ad metrics, funnel metrics, and writes a 
   assert.equal(result.diagnosis.bottleneck, "none");
   // status="proposed"のad-3（異常値999999）が集計対象外であることを確認する
   assert.equal(result.adMetrics.impressions, 10000);
+  // CPA=30円は目標500円以内
+  assert.deepEqual(result.cpaEvaluation, {
+    withinTarget: true,
+    target: 500,
+    message: "CPAが30円で目標500円以内です。",
+  });
+
+  const writtenNote = updateCalls[0].requestBody.data.find((d) => d.range.includes("!T")).values[0][0];
+  assert.match(writtenNote, /CPAが30円で目標500円以内です。/);
+  assert.doesNotMatch(writtenNote, /CPA観点からも改善が必要/);
+});
+
+test("runPdcaCheck appends a CPA-over-target warning line when CPA exceeds CPA_TARGET", async () => {
+  const config = {
+    spreadsheetId: "sheet-123",
+    sheets: { parent: "parent", x_ads_ops: "X_ads_ops" },
+  };
+  const parentColumns = getColumnNames("parent");
+  const parentRowValues = parentColumns.map((c) => {
+    if (c === "seminar_id") return "sem_001";
+    if (c === "lp_visits") return "500";
+    if (c === "registrations") return "10"; // 少ない申込数でCPAを吊り上げる
+    return "";
+  });
+  const xAdsColumns = getColumnNames("x_ads_ops");
+  const adRow = (adId, status, impressions, clicks, spend) =>
+    xAdsColumns.map((c) => {
+      if (c === "ad_id") return adId;
+      if (c === "seminar_id") return "sem_001";
+      if (c === "status") return status;
+      if (c === "impressions") return String(impressions);
+      if (c === "clicks") return String(clicks);
+      if (c === "spend") return String(spend);
+      return "";
+    });
+  const xAdsRows = [xAdsColumns, adRow("ad-1", "approved", 10000, 150, 7000)]; // spend/registrations = 700円
+
+  const updateCalls = [];
+  const sheets = {
+    spreadsheets: {
+      get: async () => ({ data: { sheets: [{ properties: { title: "parent", sheetId: 0 } }] } }),
+      batchUpdate: async () => ({ data: {} }),
+      values: {
+        get: async (request) => {
+          if (request.range.startsWith("parent")) {
+            return { data: { values: [parentColumns, parentRowValues] } };
+          }
+          return { data: { values: xAdsRows } };
+        },
+        batchUpdate: async (request) => {
+          updateCalls.push(request);
+          return { data: { responses: request.requestBody.data.map((d) => ({ updatedRange: d.range })) } };
+        },
+      },
+    },
+  };
+
+  const result = await runPdcaCheck("sem_001", { config, sheets });
+
+  assert.equal(result.cpa, 700);
+  assert.equal(result.cpaEvaluation.withinTarget, false);
+
+  const writtenNote = updateCalls[0].requestBody.data.find((d) => d.range.includes("!T")).values[0][0];
+  assert.match(writtenNote, /CPAが700円で目標500円を超過しています（要注意）。/);
+  assert.match(writtenNote, /CPA観点からも改善が必要（広告費が高すぎる）/);
 });
