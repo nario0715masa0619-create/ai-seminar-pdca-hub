@@ -1,0 +1,141 @@
+{
+  "name": "ai-seminar-pdca-acquisition",
+  "nodes": [
+    {
+      "id": "webhook-acquisition-entry",
+      "name": "Webhook (acquisition entry)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "notes": "受け取るbody例: { \"seminar_id\": \"sem_2026_001\", \"topic\": \"AI活用で広告費を半分にする\", \"target_audience\": \"中小企業のマーケティング責任者\" }。docs/n8n-workflows.md > Acquisition Flow > Trigger 参照。",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-seminar-pdca-acquisition",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "build-claude-input",
+      "name": "Build Claude Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [480, 300],
+      "notes": "TriggerのbodyをClaudeに渡すseminar情報として整形する。実際のParent Sheet/X Ads Template/LP Templateの行読み込みは、このリポジトリのscripts/build-payload.js（またはGoogle Sheetsノード）に任せる前提のため、ここでは受け取ったJSONをほぼそのまま通す。",
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            { "name": "seminar_id", "stringValue": "={{ $json.body.seminar_id }}" },
+            { "name": "topic", "stringValue": "={{ $json.body.topic || '' }}" },
+            { "name": "target_audience", "stringValue": "={{ $json.body.target_audience || '' }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "call-claude-api",
+      "name": "Call Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300],
+      "notes": "実APIキーはここに書かない。x-api-keyは「Claude HTTP」という名前のn8n Credential（Header Auth）から注入する前提。import後、このノードのCredential欄で実際のCredentialを「Claude HTTP」という名前で紐付けること。",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"claude-opus-4-8\", max_tokens: 2000, system: \"あなたは ai-seminar-pdca-hub の Acquisition Agent です。無料AIセミナーへの集客導線（X広告・LP）の生成と改善提案を専門とします。入力のseminar情報をもとに、X広告案（複数パターン）・LP構成案（1案）・次に検証すべきテスト変数を、prompts/acquisition.md のOutput JSON schema（x_ads配列, lpオブジェクト, next_test_recommendationオブジェクト、各要素にtest_variable/hypothesisを含む）に厳密に従ったJSONのみで返してください。説明文はJSON外に含めないでください。\", messages: [{ role: \"user\", content: JSON.stringify({ seminar_id: $json.seminar_id, topic: $json.topic, target_audience: $json.target_audience }) }] }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Claude HTTP"
+        }
+      }
+    },
+    {
+      "id": "parse-claude-response",
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300],
+      "notes": "prompts/acquisition.md の Output JSON schema（x_ads配列, lpオブジェクト, next_test_recommendationオブジェクト）をパースした上で、Sheets書き込み前の要約ビューとして x_ads_candidates / lp_outline / test_variable / hypothesis を組み立てる。scripts/validate-agent-output.js の validateAgentOutput(\"acquisition\", output) 相当の検証をTODOとして残している。",
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// TODO: 実際には $input.first().json からClaudeレスポンス本文（content[0].text）を取り出しJSON.parseする\n// const responseText = $input.first().json.content[0].text;\n// const output = JSON.parse(responseText);\n// TODO: scripts/validate-agent-output.js の validateAgentOutput(\"acquisition\", output) 相当の検証をここで行う\nconst output = { x_ads: [], lp: {}, next_test_recommendation: {} };\n\n// prompts/acquisition.md のOutput JSON schemaから、Sheets書き込み前の要約ビューを組み立てる\nconst result = {\n  x_ads_candidates: output.x_ads,\n  lp_outline: output.lp,\n  test_variable: output.next_test_recommendation.variable || (output.lp && output.lp.test_variable) || \"\",\n  hypothesis: (output.lp && output.lp.hypothesis) || (output.x_ads[0] && output.x_ads[0].hypothesis) || \"\",\n};\n\nreturn [{ json: result }];"
+      }
+    },
+    {
+      "id": "prepare-sheets-payload",
+      "name": "Prepare Sheets Payload (TODO: sync via scripts/sync-sheets.js)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 300],
+      "notes": "TODO: x_ads_candidatesの各要素を scripts/sync-sheets.js の appendRow({ sheetKey: \"x_ads\", values: payloadToRow(\"x_ads\", entry) }) 相当で x_ads シートへ、lp_outline を appendRow({ sheetKey: \"lp\", values: payloadToRow(\"lp\", lp_outline) }) 相当で lp シートへ保存する処理に差し替える。Google Sheetsノード、またはHTTP経由でこのリポジトリのスクリプトを呼ぶ別サービスのいずれかを想定（docs/n8n-workflows.md の未確定事項参照）。credential未設定のためNoOpのまま。"
+    }
+  ],
+  "connections": {
+    "Webhook (acquisition entry)": {
+      "main": [
+        [
+          {
+            "node": "Build Claude Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude Input": {
+      "main": [
+        [
+          {
+            "node": "Call Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude API": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude Response": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sheets Payload (TODO: sync via scripts/sync-sheets.js)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Acquisition Agent（prompts/acquisition.md）向けのn8nワークフロー。Webhookで受けたseminar情報をClaude API（HTTP Requestノード、Credential名「Claude HTTP」を想定）に渡し、レスポンスをx_ads_candidates/lp_outline/test_variable/hypothesisに整形する。実APIキー・実Credential IDは一切含まない。import後、Call Claude APIノードのCredential欄に実際のCredentialを「Claude HTTP」という名前で紐付けること。"
+  }
+}
