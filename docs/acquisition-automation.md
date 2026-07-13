@@ -87,6 +87,35 @@ Parentの実データを読んだ上で広告コピーを生成し、`runAutonom
 - **`X_ads.status`**: `proposed` → 人間が`approved`に変更 → （将来）X広告として入稿 → 実績が溜まったら`paused_auto`（自動停止）または`winner`（勝ちパターン）に遷移
 - **`LPs.status`**: `proposed` → 人間が`approved`に変更 → （将来）実LPとして公開
 
+## 毎週の投稿PDCA（`scripts/weekly-post-pdca.js`）
+
+Google Sheetsとは独立した軽量ユーティリティ。毎週 `{ week, ctr, signups, prev_ctr, prev_signups }`
+（KPIは`signups`=LPからのセミナー申込数）を渡すと、状態を判定し、次の投稿案・LP改善案を含む
+レポートJSONを返す。
+
+```
+node scripts/weekly-post-pdca.js '{"week":"2026-07-13週","ctr":0.015,"signups":12}'
+```
+
+### 判定ロジック（`classifyWeek`、純粋関数）
+
+| 条件 | status | 内容 |
+|---|---|---|
+| `prev_ctr`/`prev_signups`が無い（初週） | `baseline` | ベースライン確立。投稿A/B案を新規生成 |
+| `signups >= prev_signups` かつ `ctr >= prev_ctr` | `keep` | 現状維持。軽微な文言改善のみ |
+| `signups >= prev_signups` かつ `ctr < prev_ctr` | `replace_post` | 投稿差し替え（LPは維持） |
+| `signups < prev_signups` かつ `ctr >= prev_ctr` | `improve_lp` | LP改善優先（投稿の軸は維持、新規投稿コピーなし） |
+| `signups < prev_signups` かつ `ctr < prev_ctr` | `replace_post_and_improve_lp` | 投稿差し替え＋LP改善の両方 |
+
+投稿案は固定2軸（`POST_AXES`: A=「AI導入の着手点で止まっている経営者向け」、
+B=「人手不足・属人化で限界に近い現場向け」）から`buildPostText()`で組み立てる
+（280〜300文字のX広告制限内、末尾に`{{LP_URL}}`プレースホルダ）。LP改善案（見出し/導入文/ベネフィット順）は
+`generateLpSuggestions()`が返す。実LP本文（`lpExcerpt`）を渡すとより具体的な示唆に精緻化できる余地を
+残しているが、現状は汎用的な改善観点を返す実装にとどまる。
+
+Sheets（Parent/X_ads_ops/LPs）への書き込みは行わない。将来的に自動化する場合は、
+`scripts/acquisition-agent.js`側からこのモジュールの関数を呼び出す形で組み込む想定。
+
 ## 将来のX API連携（未実装、設計のみ）
 
 詳細なI/O契約・実装状況は [`docs/x-ads-integration.md`](x-ads-integration.md) を参照。

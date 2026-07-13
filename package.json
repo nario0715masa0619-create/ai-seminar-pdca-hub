@@ -9,6 +9,7 @@
     "check-schema": "node scripts/check-schema-consistency.js",
     "check-n8n-workflows": "node scripts/validate-n8n-workflows.js",
     "setup-status-dropdowns": "node scripts/setup-status-dropdowns.js",
+    "weekly-post-pdca": "node scripts/weekly-post-pdca.js",
     "test": "node --test tests/*.test.js",
     "test:e2e": "node --test tests/e2e/*.test.js"
   },
