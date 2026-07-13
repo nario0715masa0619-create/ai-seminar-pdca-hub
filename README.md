@@ -13,7 +13,7 @@
 ## リポジトリ構成
 | ディレクトリ | 内容 |
 |---|---|
-| `docs/` | スキーマ定義（`schema.md`）、エージェント設計（`agent-design.md`）、n8nワークフローのI/O契約（`n8n-workflows.md`）、X広告自律集客の設計（`acquisition-automation.md`） |
+| `docs/` | スキーマ定義（`schema.md`）、エージェント設計（`agent-design.md`）、n8nワークフローのI/O契約（`n8n-workflows.md`）、X広告自律集客の設計（`acquisition-automation.md`）、X Ads API連携設計（`x-ads-integration.md`） |
 | `prompts/` | 4エージェント（Acquisition / Seminar Content / Diagnostics / Follow-up）のプロンプト雛形 |
 | `scripts/` | ペイロード生成・Sheets同期・スキーマ整合性チェックなどのNode.jsスクリプト（`npm test` / `npm run check-schema` で検証可能） |
 | `tests/` | `scripts/` 配下の単体テスト（`node:test`、`npm test` で実行） |

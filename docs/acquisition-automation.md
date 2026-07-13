@@ -83,6 +83,7 @@ Parentの実データを読んだ上で広告コピーを生成し、`runAutonom
 
 ## 将来のX API連携（未実装、設計のみ）
 
+詳細なI/O契約・実装状況は [`docs/x-ads-integration.md`](x-ads-integration.md) を参照。
 現時点ではX APIそのものへの接続・入稿は行わない。ただし将来的に以下のフローを組む前提で
 データ構造・命名（`x_campaign_id` / `x_adset_id` / `x_ad_id` / `impressions` / `clicks` / `spend`）を
 X_adsシートに用意済み。
