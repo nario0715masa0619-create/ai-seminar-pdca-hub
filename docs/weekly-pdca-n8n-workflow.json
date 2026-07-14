@@ -8,7 +8,7 @@
       "typeVersion": 1,
       "position": [
         240,
-        200
+        400
       ],
       "notes": "毎週決まった曜日・時刻にワークフロー全体を起動する",
       "parameters": {
@@ -32,7 +32,7 @@
       "typeVersion": 3,
       "position": [
         540,
-        200
+        400
       ],
       "notes": "account_id / campaign_id / GA4 property_id / spreadsheet_id / Slackチャンネルなど、ワークフロー全体で使う固定設定値をまとめて注入する",
       "parameters": {
@@ -208,7 +208,7 @@
       "typeVersion": 3,
       "position": [
         1440,
-        200
+        400
       ],
       "notes": "Calculate CTR / Fetch GA4 Signups / Load Previous Week Metricsの3分岐を1本化し、Build PDCA Payloadを1回だけ実行させる。Build PDCA Payload側は引き続き$node[]でそれぞれの出力を参照する。",
       "parameters": {
@@ -224,7 +224,7 @@
       "typeVersion": 2,
       "position": [
         1740,
-        200
+        400
       ],
       "notes": "weekly-post-pdca.jsに渡す入力JSONを組み立てる。docs/weekly-post-pdca-ops.mdの入力仕様に準拠する",
       "parameters": {
@@ -239,7 +239,7 @@
       "typeVersion": 1,
       "position": [
         2040,
-        200
+        400
       ],
       "notes": "scripts/weekly-post-pdca.jsをCLI実行し、判定結果と投稿A/B案・LP改善案のJSON文字列を取得する",
       "parameters": {
@@ -253,7 +253,7 @@
       "typeVersion": 2,
       "position": [
         2340,
-        200
+        400
       ],
       "notes": "run_weekly_post_pdcaの標準出力文字列をJSON.parseし、後続ノードから扱いやすい形に整える",
       "parameters": {
@@ -268,7 +268,7 @@
       "typeVersion": 1,
       "position": [
         2640,
-        200
+        400
       ],
       "notes": "PDCA実行が成功した場合のみログ保存・state更新・Slack成功通知を行い、失敗時はエラー通知のみに分岐させる",
       "parameters": {
@@ -289,7 +289,7 @@
       "typeVersion": 4.5,
       "position": [
         2940,
-        200
+        150
       ],
       "notes": "今週の実績と判定結果をweekly_pdca_logシートに1行追加する",
       "parameters": {
@@ -335,7 +335,7 @@
       "typeVersion": 4.5,
       "position": [
         2940,
-        400
+        350
       ],
       "notes": "今週のctr/signupsを次回実行時のprev_ctr/prev_signupsとしてpdca_stateシートに上書き保存する",
       "parameters": {
@@ -376,7 +376,7 @@
       "typeVersion": 1,
       "position": [
         2940,
-        600
+        550
       ],
       "notes": "週次PDCAの判定結果と次週の投稿A/B案・LP改善案をSlackに通知する（成功時）",
       "parameters": {
