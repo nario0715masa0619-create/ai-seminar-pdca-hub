@@ -53,7 +53,7 @@
             },
             {
               "name": "sheets_spreadsheet_id",
-              "stringValue": "<GOOGLE_SHEETS_SPREADSHEET_ID>"
+              "stringValue": "1A4JT0jeeHMhYOSRTULfnju1P3tVFbIdsrJIL-gVPHGY"
             },
             {
               "name": "sheets_log_sheet_name",
@@ -62,10 +62,6 @@
             {
               "name": "sheets_state_sheet_name",
               "stringValue": "pdca_state"
-            },
-            {
-              "name": "slack_channel",
-              "stringValue": "#weekly-pdca"
             }
           ]
         }
@@ -290,7 +286,7 @@
       "typeVersion": 4.5,
       "position": [
         2940,
-        150
+        250
       ],
       "notes": "今週の実績と判定結果をweekly_pdca_logシートに1行追加する",
       "parameters": {
@@ -339,7 +335,7 @@
       "typeVersion": 4.5,
       "position": [
         2940,
-        350
+        450
       ],
       "notes": "operation=appendOrUpdateとrow_key=\"current\"のmatchingColumnsにより、pdca_stateの単一state行を安全に作成/上書きする。row_keyが存在しなければ新規作成、存在すれば上書き。",
       "parameters": {
@@ -374,50 +370,6 @@
         "googleApi": {
           "id": "",
           "name": "Google Service Account Credential (Sheets API scope)"
-        }
-      }
-    },
-    {
-      "id": "a14f592d-3171-4712-ac9d-26aecb200617",
-      "name": "Notify Slack (Success)",
-      "type": "n8n-nodes-base.slack",
-      "typeVersion": 1,
-      "position": [
-        2940,
-        550
-      ],
-      "notes": "週次PDCAの判定結果と次週の投稿A/B案・LP改善案をSlackに通知する（成功時）",
-      "parameters": {
-        "channel": "={{ $node['Load Runtime Config'].json.slack_channel }}",
-        "text": "=📊 週次PDCAレポート: {{ $node['Build PDCA Payload'].json.week }}\n\n■ 今週の実績\nCTR: {{ $node['Build PDCA Payload'].json.ctr }}（前週 {{ $node['Build PDCA Payload'].json.prev_ctr ?? '-' }}）\n申込数: {{ $node['Build PDCA Payload'].json.signups }}件（前週 {{ $node['Build PDCA Payload'].json.prev_signups ?? '-' }}件）\n\n■ 評価: {{ $node['Parse PDCA Stdout'].json.verdict }}\n{{ $node['Parse PDCA Stdout'].json.reason }}\n\n■ 次週のアクション\n{{ $node['Parse PDCA Stdout'].json.action }}\n\n詳細な投稿案・LP改善案はweekly_pdca_logシートをご確認ください。",
-        "otherOptions": {}
-      },
-      "credentials": {
-        "slackApi": {
-          "id": "",
-          "name": "Slack API Credential Name"
-        }
-      }
-    },
-    {
-      "id": "6ed44b2e-0f2e-4277-ad1d-5ee21f173617",
-      "name": "Notify Slack (Error)",
-      "type": "n8n-nodes-base.slack",
-      "typeVersion": 1,
-      "position": [
-        2940,
-        800
-      ],
-      "notes": "週次PDCA自動実行が失敗した場合にエラー内容をSlackに通知する",
-      "parameters": {
-        "channel": "={{ $node['Load Runtime Config'].json.slack_channel }}",
-        "text": "[エラー] 週次PDCA自動実行に失敗しました。\nノード: run_weekly_post_pdca / parse_pdca_stdout\n詳細はn8nの実行ログを確認してください。",
-        "otherOptions": {}
-      },
-      "credentials": {
-        "slackApi": {
-          "id": "",
-          "name": "Slack API Credential Name"
         }
       }
     }
@@ -511,20 +463,9 @@
             "node": "Update State for Next Week",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Notify Slack (Success)",
-            "type": "main",
-            "index": 0
           }
         ],
-        [
-          {
-            "node": "Notify Slack (Error)",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
     "Calculate CTR": {
