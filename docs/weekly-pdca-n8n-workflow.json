@@ -2,7 +2,7 @@
   "name": "Weekly X Ads PDCA Automation",
   "nodes": [
     {
-      "id": "cron_weekly",
+      "id": "dfa94822-8f89-437c-871b-02ff50809e04",
       "name": "Weekly Trigger",
       "type": "n8n-nodes-base.cron",
       "typeVersion": 1,
@@ -26,7 +26,7 @@
       }
     },
     {
-      "id": "load_runtime_config",
+      "id": "3442b3b7-ae88-41be-8596-2bf227fa64c2",
       "name": "Load Runtime Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
@@ -72,7 +72,7 @@
       }
     },
     {
-      "id": "x_ads_metrics",
+      "id": "cfedbcc2-089d-49c8-9550-a4895d68fe75",
       "name": "Fetch X Ads Metrics",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -128,7 +128,7 @@
       }
     },
     {
-      "id": "ga4_signups",
+      "id": "54ac7cea-e888-4bf8-b3ec-858ca88ff2ce",
       "name": "Fetch GA4 Signups",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -155,7 +155,7 @@
       }
     },
     {
-      "id": "calc_ctr",
+      "id": "5b03c0b4-8b98-419d-be65-f43b6f8dd540",
       "name": "Calculate CTR",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -170,7 +170,7 @@
       }
     },
     {
-      "id": "load_prev_metrics",
+      "id": "944c84ec-cc6a-4622-b211-7811488efdf2",
       "name": "Load Previous Week Metrics",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
@@ -202,7 +202,7 @@
       }
     },
     {
-      "id": "merge_weekly_metrics",
+      "id": "3b043f35-654d-43d6-9e09-1cf053d4abd6",
       "name": "Merge Weekly Metrics",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
@@ -218,7 +218,7 @@
       }
     },
     {
-      "id": "build_pdca_payload",
+      "id": "d131d1f2-54d4-43cb-aa5c-c24fd8f5a8a0",
       "name": "Build PDCA Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -233,7 +233,7 @@
       }
     },
     {
-      "id": "run_weekly_post_pdca",
+      "id": "f37f54ec-c2c2-4e42-8718-d0b362bbb65b",
       "name": "Run weekly-post-pdca.js",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
@@ -247,7 +247,7 @@
       }
     },
     {
-      "id": "parse_pdca_stdout",
+      "id": "ca65bd16-814d-4fad-bd4c-346936d51ed8",
       "name": "Parse PDCA Stdout",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -262,7 +262,7 @@
       }
     },
     {
-      "id": "if_pdca_success",
+      "id": "12af1106-d542-47c6-8279-a0c7239c1093",
       "name": "If PDCA Success",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
@@ -283,7 +283,7 @@
       }
     },
     {
-      "id": "log_to_sheets",
+      "id": "85ef9687-bb21-4b73-884c-add94e879e82",
       "name": "Append Weekly Log",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
@@ -329,7 +329,7 @@
       }
     },
     {
-      "id": "update_prev_metrics",
+      "id": "5f539635-e886-4814-9b03-d2bdad0dd546",
       "name": "Update State for Next Week",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
@@ -370,7 +370,7 @@
       }
     },
     {
-      "id": "notify_slack_success",
+      "id": "a14f592d-3171-4712-ac9d-26aecb200617",
       "name": "Notify Slack (Success)",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 1,
@@ -392,7 +392,7 @@
       }
     },
     {
-      "id": "notify_slack_error",
+      "id": "6ed44b2e-0f2e-4277-ad1d-5ee21f173617",
       "name": "Notify Slack (Error)",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 1,
