@@ -1,0 +1,475 @@
+{
+  "name": "Weekly X Ads PDCA Automation (Full Dummy Run)",
+  "nodes": [
+    {
+      "id": "dfa94822-8f89-437c-871b-02ff50809e04",
+      "name": "Weekly Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        240,
+        400
+      ],
+      "notes": "毎週決まった曜日・時刻にワークフロー全体を起動する",
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyWeek",
+              "weekday": 1,
+              "hour": 9,
+              "minute": 0
+            }
+          ]
+        },
+        "timezone": "Asia/Tokyo"
+      }
+    },
+    {
+      "id": "3442b3b7-ae88-41be-8596-2bf227fa64c2",
+      "name": "Load Runtime Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        540,
+        400
+      ],
+      "notes": "account_id / campaign_id / GA4 property_id / spreadsheet_id / Slackチャンネルなど、ワークフロー全体で使う固定設定値をまとめて注入する",
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            {
+              "name": "x_account_id",
+              "stringValue": "<X_ADS_ACCOUNT_ID>"
+            },
+            {
+              "name": "x_campaign_id",
+              "stringValue": "<X_ADS_CAMPAIGN_ID>"
+            },
+            {
+              "name": "ga4_property_id",
+              "stringValue": "<GA4_PROPERTY_ID>"
+            },
+            {
+              "name": "sheets_spreadsheet_id",
+              "stringValue": "1A4JT0jeeHMhYOSRTULfnju1P3tVFbIdsrJIL-gVPHGY"
+            },
+            {
+              "name": "sheets_log_sheet_name",
+              "stringValue": "weekly_pdca_log"
+            },
+            {
+              "name": "sheets_state_sheet_name",
+              "stringValue": "pdca_state"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cfedbcc2-089d-49c8-9550-a4895d68fe75",
+      "name": "Fetch X Ads Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        200
+      ],
+      "notes": "X Ads API Credential未設定のため、本番のHTTP Requestノードの代わりにダミー値(impressions=1000, url_clicks=12)を返すCodeノード。ノード名はFetch X Ads Metricsのまま維持しているため、Credential用意後はこのnodeのtype/parametersをHTTP Request版（docs/weekly-pdca-n8n-workflow.json参照）に戻すだけでよい。",
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "return [{ json: { impressions: 1000, url_clicks: 12 } }];"
+      }
+    },
+    {
+      "id": "54ac7cea-e888-4bf8-b3ec-858ca88ff2ce",
+      "name": "Fetch GA4 Signups",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        400
+      ],
+      "notes": "GA4 Data API Credential未設定のため、本番のHTTP Requestノードの代わりにダミー値(signups=5)を返すCodeノード。ノード名はFetch GA4 Signupsのまま維持しているため、Credential用意後はこのnodeのtype/parametersをHTTP Request版（docs/weekly-pdca-n8n-workflow.json参照）に戻すだけでよい。",
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "return [{ json: { signups: 5 } }];"
+      }
+    },
+    {
+      "id": "5b03c0b4-8b98-419d-be65-f43b6f8dd540",
+      "name": "Calculate CTR",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        200
+      ],
+      "notes": "impressions/url_clicksからCTRを算出する。impressions=0の場合は0とする",
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const impressions = Number($node['Fetch X Ads Metrics'].json.impressions) || 0;\nconst urlClicks = Number($node['Fetch X Ads Metrics'].json.url_clicks) || 0;\nconst ctr = impressions > 0 ? urlClicks / impressions : 0;\nreturn [{ json: { ctr, impressions, url_clicks: urlClicks } }];"
+      }
+    },
+    {
+      "id": "944c84ec-cc6a-4622-b211-7811488efdf2",
+      "name": "Load Previous Week Metrics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        840,
+        600
+      ],
+      "notes": "pdca_stateシート(row_key/prev_ctr/prev_signups/last_status/updated_at)のrow_key=\"current\"行(2行目固定、初期セットアップ時に1行だけ手動で作成しておく前提)を読む。初回実行時、prev_ctr/prev_signupsが空であれば後段でnullとして扱われる。",
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "mode": "id",
+          "value": "={{ $node['Load Runtime Config'].json.sheets_spreadsheet_id }}"
+        },
+        "sheetName": {
+          "mode": "list",
+          "value": "={{ $node['Load Runtime Config'].json.sheets_state_sheet_name }}",
+          "cachedResultName": "={{ $node['Load Runtime Config'].json.sheets_state_sheet_name }}"
+        },
+        "options": {},
+        "range": "A2:E2"
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "",
+          "name": "Google Service Account Credential (Sheets API scope)"
+        }
+      }
+    },
+    {
+      "id": "3b043f35-654d-43d6-9e09-1cf053d4abd6",
+      "name": "Merge Weekly Metrics",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1440,
+        400
+      ],
+      "notes": "Calculate CTR / Fetch GA4 Signups / Load Previous Week Metricsの3分岐を1本化し、Build PDCA Payloadを1回だけ実行させる。Build PDCA Payload側は引き続き$node[]でそれぞれの出力を参照する。",
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "numberInputs": 3
+      }
+    },
+    {
+      "id": "d131d1f2-54d4-43cb-aa5c-c24fd8f5a8a0",
+      "name": "Build PDCA Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1740,
+        400
+      ],
+      "notes": "weekly-post-pdca.jsに渡す入力JSONを組み立てる。docs/weekly-post-pdca-ops.mdの入力仕様に準拠する",
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const pad = (n) => String(n).padStart(2, '0');\nconst now = new Date();\nconst week = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}週`;\n\nconst ctr = $node['Calculate CTR'].json.ctr;\nconst signups = Number($node['Fetch GA4 Signups'].json.signups) || 0;\nconst prevRow = $node['Load Previous Week Metrics'].json || {};\n\nconst prevCtrRaw = prevRow.prev_ctr;\nconst prevSignupsRaw = prevRow.prev_signups;\n\nconst prev_ctr = (prevCtrRaw === undefined || prevCtrRaw === '' || prevCtrRaw === null) ? null : Number(prevCtrRaw);\nconst prev_signups = (prevSignupsRaw === undefined || prevSignupsRaw === '' || prevSignupsRaw === null) ? null : Number(prevSignupsRaw);\n\nconst payload = { week, ctr, signups, prev_ctr, prev_signups };\n\nreturn [{ json: { ...payload, payloadJsonString: JSON.stringify(payload) } }];"
+      }
+    },
+    {
+      "id": "f37f54ec-c2c2-4e42-8718-d0b362bbb65b",
+      "name": "Run weekly-post-pdca.js",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        400
+      ],
+      "notes": "scripts/weekly-post-pdca.jsのgenerateWeeklyReport()ロジックをインライン移植（n8n-nodes-base.executeCommandはn8n Cloud等のマネージド環境で無効化・非提供の場合があり\"?\"未認識ノードの原因になるため、Codeノードに置き換えた）。出力は{ stdout: JSON文字列 }のまま維持し、後続のParse PDCA Stdoutノードは無変更で動作する。セルフホストでscripts/weekly-post-pdca.js本体をCLI実行したい場合は、このノードをExecute Commandノードに戻して command: \"node scripts/weekly-post-pdca.js ...\" を設定すること。",
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const LP_URL_PLACEHOLDER = \"{{LP_URL}}\";\nconst POST_AXES = {\n  A: {\n    hook: \"AIの必要性はわかっているのに、自社でどこから始めるべきか判断がつかず、止まっていませんか？\",\n    bullets: [\n      \"自社の業務のどこにAIを使うべきかが整理できる\",\n      \"「まず着手すべき1つの領域」とその理由が明確になる\",\n      \"個別相談で自社に合った次の一手まで相談できる\",\n    ],\n  },\n  B: {\n    hook: \"人手不足と属人化で、現場がもう限界に近づいていませんか？\",\n    bullets: [\n      \"属人化している業務の棚卸しができる\",\n      \"AIで巻き取れる業務の見極め方がわかる\",\n      \"少ない人数でも回る仕組みづくりの第一歩がわかる\",\n    ],\n  },\n};\nconst BENEFIT_LINE = \"60分で、自社にとっての「初手の判断軸」を整理できる無料セミナーです。\";\n\nfunction buildPostText(axisKey, options) {\n  options = options || {};\n  const axis = POST_AXES[axisKey];\n  if (!axis) throw new Error('Unknown axis: \"' + axisKey + '\". Expected \"A\" or \"B\".');\n  const lpUrl = options.lpUrl || LP_URL_PLACEHOLDER;\n  const hook = options.tweak ? axis.hook + options.tweak : axis.hook;\n  const bullets = axis.bullets.map(function (b) { return \"・\" + b; }).join(\"\\n\");\n  return hook + \"\\n\\n\" + bullets + \"\\n\\n\" + BENEFIT_LINE + \"\\n\\n詳細・お申込みはこちら▼ \" + lpUrl;\n}\n\nfunction classifyWeek(input) {\n  const ctr = input.ctr, signups = input.signups, prev_ctr = input.prev_ctr, prev_signups = input.prev_signups;\n  const isBaseline = prev_ctr === null || prev_ctr === undefined || prev_signups === null || prev_signups === undefined;\n  if (isBaseline) {\n    return { status: \"baseline\", reason: \"前週データがなく比較対象がないため、今週の実績をベースラインとして扱い、A/Bテスト用の投稿案を作成します。\" };\n  }\n  const signupsOk = signups >= prev_signups;\n  const ctrOk = ctr >= prev_ctr;\n  if (signupsOk && ctrOk) {\n    return { status: \"keep\", reason: \"申込数(\" + signups + \"件、前週\" + prev_signups + \"件)・CTR(\" + ctr + \"、前週\" + prev_ctr + \")ともに前週以上のため、現状維持とし、軽微な文言改善のみ行います。\" };\n  }\n  if (signupsOk && !ctrOk) {\n    return { status: \"replace_post\", reason: \"申込数(\" + signups + \"件)は前週(\" + prev_signups + \"件)以上を維持していますが、CTRが前週(\" + prev_ctr + \")より悪化(\" + ctr + \")しているため、投稿文を差し替えます。\" };\n  }\n  if (!signupsOk && ctrOk) {\n    return { status: \"improve_lp\", reason: \"CTRは前週(\" + prev_ctr + \")以上を維持(\" + ctr + \")していますが、申込数が前週(\" + prev_signups + \"件)より減少(\" + signups + \"件)しているため、投稿の軸は維持しつつLP改善を優先します。\" };\n  }\n  return { status: \"replace_post_and_improve_lp\", reason: \"CTR(\" + ctr + \" < 前週\" + prev_ctr + \")・申込数(\" + signups + \"件 < 前週\" + prev_signups + \"件)がともに悪化しているため、投稿差し替えとLP改善の両方を行います。\" };\n}\n\nfunction generateLpSuggestions() {\n  return [\n    \"見出し改善案: 「AI導入、何から始める？を60分で言語化する無料セミナー」のように、所要時間と得られる結果を見出しに明示する。\",\n    \"導入文改善案: 冒頭1文目で「何から手をつければいいか分からない」という悩みに具体的に共感し、2文目で本セミナーが提供する解決の方向性を提示する。\",\n    \"ベネフィット順改善案: 最も刺さりやすい「最初の一手が明確になる」ベネフィットを先頭に配置し、次に個別相談導線、最後に信頼要素（実績・登壇者情報）の順に並べる。\",\n  ];\n}\n\nfunction generateWeeklyReport(input) {\n  const c = classifyWeek(input);\n  const status = c.status, reason = c.reason;\n  let next_post_A = null, next_post_B = null, lp_suggestions = [];\n  if (status === \"baseline\" || status === \"replace_post\" || status === \"replace_post_and_improve_lp\") {\n    next_post_A = buildPostText(\"A\");\n    next_post_B = buildPostText(\"B\");\n  } else if (status === \"keep\") {\n    next_post_A = buildPostText(\"A\", { tweak: \"（今なら個別相談も無料）\" });\n    next_post_B = buildPostText(\"B\", { tweak: \"（今なら個別相談も無料）\" });\n  } else if (status === \"improve_lp\") {\n    next_post_A = null;\n    next_post_B = null;\n  }\n  if (status === \"improve_lp\" || status === \"replace_post_and_improve_lp\") {\n    lp_suggestions = generateLpSuggestions();\n  }\n  return { week: input.week, status: status, reason: reason, next_post_A: next_post_A, next_post_B: next_post_B, lp_suggestions: lp_suggestions };\n}\n\nconst report = generateWeeklyReport($json);\nreturn [{ json: { stdout: JSON.stringify(report) } }];"
+      }
+    },
+    {
+      "id": "ca65bd16-814d-4fad-bd4c-346936d51ed8",
+      "name": "Parse PDCA Stdout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        400
+      ],
+      "notes": "run_weekly_post_pdcaの標準出力文字列をJSON.parseし、後続ノードから扱いやすい形に整える",
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const stdout = $json.stdout || $json.data || '';\nif (!stdout) {\n  throw new Error('PDCA script returned empty stdout');\n}\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout.trim());\n} catch (e) {\n  throw new Error('Failed to parse PDCA stdout as JSON: ' + e.message);\n}\n\n// Slack通知向けに、statusを人間が一目で分かる評価(verdict)と次週アクション方針(action)に変換する\nconst VERDICT_BY_STATUS = {\n  baseline: '初回計測（ベースライン）',\n  keep: '良好・維持',\n  replace_post: '要改善（広告文）',\n  improve_lp: '要改善（LP）',\n  replace_post_and_improve_lp: '要改善（広告・LP両方）',\n};\nconst ACTION_BY_STATUS = {\n  baseline: '来週から前週比較を開始します。今週生成した投稿A/Bをそのまま配信してください。',\n  keep: '現状の投稿・LPをそのまま継続してください（軽微な文言調整のみ反映）。',\n  replace_post: '今週生成した投稿A/Bに差し替えてください。LPは現状維持でOKです。',\n  improve_lp: '投稿はそのまま、LPをlp_suggestionsの内容で見直してください。',\n  replace_post_and_improve_lp: '投稿A/Bへの差し替えと、LP改善の両方を実施してください。',\n};\n\nparsed.verdict = VERDICT_BY_STATUS[parsed.status] || parsed.status;\nparsed.action = ACTION_BY_STATUS[parsed.status] || '';\n\nreturn [{ json: parsed }];"
+      }
+    },
+    {
+      "id": "12af1106-d542-47c6-8279-a0c7239c1093",
+      "name": "If PDCA Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        400
+      ],
+      "notes": "PDCA実行が成功した場合のみログ保存・state更新・Slack成功通知を行い、失敗時はエラー通知のみに分岐させる",
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !!$node['Parse PDCA Stdout'].json.status }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "85ef9687-bb21-4b73-884c-add94e879e82",
+      "name": "Append Weekly Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2940,
+        250
+      ],
+      "notes": "今週の実績と判定結果をweekly_pdca_logシートに1行追加する",
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "mode": "id",
+          "value": "={{ $node['Load Runtime Config'].json.sheets_spreadsheet_id }}"
+        },
+        "sheetName": {
+          "mode": "list",
+          "value": "={{ $node['Load Runtime Config'].json.sheets_log_sheet_name }}",
+          "cachedResultName": "={{ $node['Load Runtime Config'].json.sheets_log_sheet_name }}"
+        },
+        "options": {},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "week": "={{ $node['Build PDCA Payload'].json.week }}",
+            "run_at": "={{ $now.toISO() }}",
+            "ctr": "={{ $node['Build PDCA Payload'].json.ctr }}",
+            "signups": "={{ $node['Build PDCA Payload'].json.signups }}",
+            "prev_ctr": "={{ $node['Build PDCA Payload'].json.prev_ctr }}",
+            "prev_signups": "={{ $node['Build PDCA Payload'].json.prev_signups }}",
+            "status": "={{ $node['Parse PDCA Stdout'].json.status }}",
+            "reason": "={{ $node['Parse PDCA Stdout'].json.reason }}",
+            "next_post_A": "={{ $node['Parse PDCA Stdout'].json.next_post_A }}",
+            "next_post_B": "={{ $node['Parse PDCA Stdout'].json.next_post_B }}",
+            "lp_suggestions": "={{ $node['Parse PDCA Stdout'].json.lp_suggestions && $node['Parse PDCA Stdout'].json.lp_suggestions.length > 0 ? $node['Parse PDCA Stdout'].json.lp_suggestions.join(' / ') : '' }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        }
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "",
+          "name": "Google Service Account Credential (Sheets API scope)"
+        }
+      }
+    },
+    {
+      "id": "5f539635-e886-4814-9b03-d2bdad0dd546",
+      "name": "Update State for Next Week",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2940,
+        450
+      ],
+      "notes": "operation=appendOrUpdateとrow_key=\"current\"のmatchingColumnsにより、pdca_stateの単一state行を安全に作成/上書きする。row_keyが存在しなければ新規作成、存在すれば上書き。",
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "mode": "id",
+          "value": "={{ $node['Load Runtime Config'].json.sheets_spreadsheet_id }}"
+        },
+        "sheetName": {
+          "mode": "list",
+          "value": "={{ $node['Load Runtime Config'].json.sheets_state_sheet_name }}",
+          "cachedResultName": "={{ $node['Load Runtime Config'].json.sheets_state_sheet_name }}"
+        },
+        "options": {},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_key": "current",
+            "prev_ctr": "={{ $node['Build PDCA Payload'].json.ctr }}",
+            "prev_signups": "={{ $node['Build PDCA Payload'].json.signups }}",
+            "last_status": "={{ $node['Parse PDCA Stdout'].json.status }}",
+            "updated_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "row_key"
+          ],
+          "schema": []
+        }
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "",
+          "name": "Google Service Account Credential (Sheets API scope)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Weekly Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Runtime Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Runtime Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch X Ads Metrics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch GA4 Signups",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Previous Week Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch X Ads Metrics": {
+      "main": [
+        [
+          {
+            "node": "Calculate CTR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build PDCA Payload": {
+      "main": [
+        [
+          {
+            "node": "Run weekly-post-pdca.js",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run weekly-post-pdca.js": {
+      "main": [
+        [
+          {
+            "node": "Parse PDCA Stdout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse PDCA Stdout": {
+      "main": [
+        [
+          {
+            "node": "If PDCA Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If PDCA Success": {
+      "main": [
+        [
+          {
+            "node": "Append Weekly Log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update State for Next Week",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Calculate CTR": {
+      "main": [
+        [
+          {
+            "node": "Merge Weekly Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch GA4 Signups": {
+      "main": [
+        [
+          {
+            "node": "Merge Weekly Metrics",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Load Previous Week Metrics": {
+      "main": [
+        [
+          {
+            "node": "Merge Weekly Metrics",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Weekly Metrics": {
+      "main": [
+        [
+          {
+            "node": "Build PDCA Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "onboardingSettings": {},
+  "versionId": "3c22fb3f-7fdd-467a-878f-b7ed63d6805a",
+  "id": "f04a325e-d469-40ad-9330-63bf5b8b657f",
+  "meta": {
+    "description": "Fully automated weekly PDCA for seminar acquisition via X Ads + LP, human-touch-free from metrics collection through Sheets logging [FULL DUMMY RUN: Fetch X Ads Metrics and Fetch GA4 Signups are both Code nodes returning hardcoded values (impressions=1000/url_clicks=12, signups=5) so the whole workflow can be run end-to-end in n8n with only the Google Sheets credential configured, before X Ads API / GA4 credentials exist. Swap both nodes back to their HTTP Request versions in docs/weekly-pdca-n8n-workflow.json once the real credentials are available.]",
+    "sourceDesignDoc": "docs/weekly-pdca-n8n-workflow-design.json",
+    "instanceId": "1e6f69b6-9e58-4ca8-a2a6-cecc6ee34625"
+  }
+}
