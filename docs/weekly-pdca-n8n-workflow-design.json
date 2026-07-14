@@ -46,17 +46,38 @@
       }
     },
     {
+      "id": "load_runtime_config",
+      "name": "Load Runtime Config",
+      "type": "n8n-nodes-base.set",
+      "purpose": "account_id / campaign_id / GA4 property_id / spreadsheet_id / Slackチャンネルなど、ワークフロー全体で使う固定設定値をまとめて注入する",
+      "config": {
+        "mode": "manual",
+        "values": {
+          "string": [
+            { "name": "x_account_id", "value": "<X_ADS_ACCOUNT_ID>" },
+            { "name": "x_campaign_id", "value": "<X_ADS_CAMPAIGN_ID>" },
+            { "name": "ga4_property_id", "value": "<GA4_PROPERTY_ID>" },
+            { "name": "sheets_spreadsheet_id", "value": "<GOOGLE_SHEETS_SPREADSHEET_ID>" },
+            { "name": "sheets_log_sheet_name", "value": "weekly_pdca_log" },
+            { "name": "sheets_state_sheet_name", "value": "pdca_state" },
+            { "name": "slack_channel", "value": "#weekly-pdca" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
       "id": "x_ads_metrics",
       "name": "Fetch X Ads Metrics",
       "type": "n8n-nodes-base.httpRequest",
       "purpose": "対象キャンペーンの直近7日間のimpressions/url_clicksを取得する",
       "config": {
         "method": "GET",
-        "api_endpoint": "https://ads-api.x.com/12/stats/accounts/{{ $json.account_id }}",
-        "authentication": "X Ads API Credential（OAuth1.0a、実キーは本リポジトリ・本ワークフローJSONに書かない。n8n Credentialsで注入）",
+        "url": "={{ `https://ads-api.x.com/12/stats/accounts/${$node['load_runtime_config'].json.x_account_id}` }}",
+        "authentication": "X Ads API Credential（n8n Credentialsで設定）",
         "query_parameters": {
           "entity": "CAMPAIGN",
-          "entity_ids": "<X_ADS_CAMPAIGN_ID>",
+          "entity_ids": "={{ $node['load_runtime_config'].json.x_campaign_id }}",
           "metric_groups": "ENGAGEMENT",
           "placement": "ALL_ON_TWITTER",
           "start_time": "={{ $today.minus(7, 'days').toISO() }}",
@@ -77,19 +98,28 @@
       "purpose": "GA4のConversion Event(seminar_signup)から対象週の申込み数を取得する",
       "config": {
         "method": "POST",
-        "api_endpoint": "https://analyticsdata.googleapis.com/v1beta/properties/<GA4_PROPERTY_ID>:runReport",
+        "url": "={{ `https://analyticsdata.googleapis.com/v1beta/properties/${$node['load_runtime_config'].json.ga4_property_id}:runReport` }}",
         "authentication": "Google Service Account Credential Placeholder（GA4 Data API読み取りスコープ）",
-        "request_body": {
+        "body": {
           "dateRanges": [
-            { "startDate": "={{ $today.minus(7, 'days').toFormat('yyyy-MM-dd') }}", "endDate": "={{ $today.toFormat('yyyy-MM-dd') }}" }
+            {
+              "startDate": "={{ $today.minus(7, 'days').toFormat('yyyy-MM-dd') }}",
+              "endDate": "={{ $today.toFormat('yyyy-MM-dd') }}"
+            }
           ],
           "dimensions": [{ "name": "eventName" }],
           "metrics": [{ "name": "eventCount" }],
           "dimensionFilter": {
-            "filter": { "fieldName": "eventName", "stringFilter": { "value": "seminar_signup" } }
+            "filter": {
+              "fieldName": "eventName",
+              "stringFilter": { "value": "seminar_signup" }
+            }
           }
         },
-        "output_mapping": { "signups": "response.rows[0].metricValues[0].value（存在しなければ0）" },
+        "json": true,
+        "output_mapping": {
+          "signups": "Number(response.rows?.[0]?.metricValues?.[0]?.value || 0)"
+        },
         "output_example": { "signups": 3 },
         "notes": "フォームバックエンドが別APIの場合は、このHTTP RequestをそのAPIのエンドポイントに差し替える"
       }
@@ -101,7 +131,7 @@
       "purpose": "impressions/url_clicksからCTRを算出する。impressions=0の場合は0とする",
       "config": {
         "language": "javaScript",
-        "code": "const impressions = Number($json.impressions) || 0;\nconst urlClicks = Number($json.url_clicks) || 0;\nconst ctr = impressions > 0 ? urlClicks / impressions : 0;\nreturn [{ json: { ctr, impressions, url_clicks: urlClicks } }];"
+        "code": "const impressions = Number($node['x_ads_metrics'].json.impressions) || 0;\nconst urlClicks = Number($node['x_ads_metrics'].json.url_clicks) || 0;\nconst ctr = impressions > 0 ? urlClicks / impressions : 0;\nreturn [{ json: { ctr, impressions, url_clicks: urlClicks } }];"
       }
     },
     {
@@ -111,10 +141,11 @@
       "purpose": "pdca_stateシートから直近保存済みのprev_ctr/prev_signupsを読み出す。初回実行時は値が存在せずnull扱いとなる",
       "config": {
         "operation": "read",
-        "spreadsheet_id": "<GOOGLE_SHEETS_SPREADSHEET_ID>",
-        "sheet_name": "={{ $node['input_contract'].json.sheets.state_sheet_name }}",
-        "range": "pdca_state!A2:B2",
-        "column_mapping": { "prev_ctr": "A2", "prev_signups": "B2" },
+        "authentication": "Google Service Account Credential (Sheets API scope)",
+        "spreadsheet_id": "={{ $node['load_runtime_config'].json.sheets_spreadsheet_id }}",
+        "sheet_name": "={{ $node['load_runtime_config'].json.sheets_state_sheet_name }}",
+        "range": "A2:B2",
+        "column_mapping": { "prev_ctr": "A", "prev_signups": "B" },
         "empty_handling": "セルが空、またはシート/行が存在しない場合はprev_ctr=null, prev_signups=nullとして後続に渡す"
       }
     },
@@ -125,7 +156,7 @@
       "purpose": "weekly-post-pdca.jsに渡す入力JSONを組み立てる。docs/weekly-post-pdca-ops.mdの入力仕様に準拠する",
       "config": {
         "language": "javaScript",
-        "code": "const pad = (n) => String(n).padStart(2, '0');\nconst now = new Date();\nconst week = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}週`;\n\nconst ctr = $node['calc_ctr'].json.ctr;\nconst signups = $node['ga4_signups'].json.signups;\nconst prevCtrRaw = $node['load_prev_metrics'].json.prev_ctr;\nconst prevSignupsRaw = $node['load_prev_metrics'].json.prev_signups;\n\nconst prev_ctr = (prevCtrRaw === undefined || prevCtrRaw === '' || prevCtrRaw === null) ? null : Number(prevCtrRaw);\nconst prev_signups = (prevSignupsRaw === undefined || prevSignupsRaw === '' || prevSignupsRaw === null) ? null : Number(prevSignupsRaw);\n\nreturn [{ json: { week, ctr, signups, prev_ctr, prev_signups } }];",
+        "code": "const pad = (n) => String(n).padStart(2, '0');\nconst now = new Date();\nconst week = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}週`;\n\nconst ctr = $node['calc_ctr'].json.ctr;\nconst signups = Number($node['ga4_signups'].json.signups) || 0;\nconst prevRow = $node['load_prev_metrics'].json || {};\n\nconst prevCtrRaw = prevRow.prev_ctr;\nconst prevSignupsRaw = prevRow.prev_signups;\n\nconst prev_ctr = (prevCtrRaw === undefined || prevCtrRaw === '' || prevCtrRaw === null) ? null : Number(prevCtrRaw);\nconst prev_signups = (prevSignupsRaw === undefined || prevSignupsRaw === '' || prevSignupsRaw === null) ? null : Number(prevSignupsRaw);\n\nconst payload = { week, ctr, signups, prev_ctr, prev_signups };\n\nreturn [{ json: { ...payload, payloadJsonString: JSON.stringify(payload) } }];",
         "notes": "prev_ctr/prev_signupsが存在しない場合は必ずnullを入れる（baseline判定のトリガー）"
       }
     },
@@ -133,17 +164,43 @@
       "id": "run_weekly_post_pdca",
       "name": "Run weekly-post-pdca.js",
       "type": "n8n-nodes-base.executeCommand",
-      "purpose": "scripts/weekly-post-pdca.jsをCLI実行し、判定結果と投稿A/B案・LP改善案のJSONを取得する",
+      "purpose": "scripts/weekly-post-pdca.jsをCLI実行し、判定結果と投稿A/B案・LP改善案のJSON文字列を取得する",
       "config": {
-        "command": "node",
-        "args": ["scripts/weekly-post-pdca.js", "={{ JSON.stringify($json) }}"],
+        "command": "node scripts/weekly-post-pdca.js \"{{ $node['build_pdca_payload'].json.payloadJsonString.replace(/\"/g, '\\\\\"') }}\"",
         "working_directory": ".",
+        "shell": true,
         "expected_stdout_format": "stdoutにJSONオブジェクトが1つだけ出力される想定（week/status/reason/next_post_A/next_post_B/lp_suggestions）",
         "error_handling": [
-          "exit code が 0 以外の場合、ワークフローを失敗として扱い notify_slack のエラー通知分岐に渡す",
-          "stdoutが空、またはJSON.parseに失敗した場合も同様にエラー扱いとする",
-          "リトライは行わず、Slackにエラー内容を通知して人間の確認を促す（自動リトライによる二重投稿案生成を避けるため）"
+          "exit code が 0 以外の場合、ワークフローを失敗として扱い、if_pdca_success ノードでエラー分岐に送る",
+          "stdoutが空、またはJSON.parseに失敗した場合も同様にエラー扱いとする（parse_pdca_stdoutで検知）",
+          "自動リトライは行わず、Slackにエラー内容を通知して人間の確認を促す"
         ]
+      }
+    },
+    {
+      "id": "parse_pdca_stdout",
+      "name": "Parse PDCA Stdout",
+      "type": "n8n-nodes-base.code",
+      "purpose": "run_weekly_post_pdcaの標準出力文字列をJSON.parseし、後続ノードから扱いやすい形に整える",
+      "config": {
+        "language": "javaScript",
+        "code": "const stdout = $json.stdout || $json.data || '';\nif (!stdout) {\n  throw new Error('PDCA script returned empty stdout');\n}\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout.trim());\n} catch (e) {\n  throw new Error('Failed to parse PDCA stdout as JSON: ' + e.message);\n}\nreturn [{ json: parsed }];"
+      }
+    },
+    {
+      "id": "if_pdca_success",
+      "name": "If PDCA Success",
+      "type": "n8n-nodes-base.if",
+      "purpose": "PDCA実行が成功した場合のみログ保存・state更新・Slack成功通知を行い、失敗時はエラー通知のみに分岐させる",
+      "config": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !!$node['parse_pdca_stdout'].json.status }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
       }
     },
     {
@@ -153,8 +210,9 @@
       "purpose": "今週の実績と判定結果をweekly_pdca_logシートに1行追加する",
       "config": {
         "operation": "append",
-        "spreadsheet_id": "<GOOGLE_SHEETS_SPREADSHEET_ID>",
-        "sheet_name": "weekly_pdca_log",
+        "authentication": "Google Service Account Credential (Sheets API scope)",
+        "spreadsheet_id": "={{ $node['load_runtime_config'].json.sheets_spreadsheet_id }}",
+        "sheet_name": "={{ $node['load_runtime_config'].json.sheets_log_sheet_name }}",
         "columns": ["week", "ctr", "signups", "prev_ctr", "prev_signups", "status", "reason"],
         "value_mapping": {
           "week": "={{ $node['build_pdca_payload'].json.week }}",
@@ -162,8 +220,8 @@
           "signups": "={{ $node['build_pdca_payload'].json.signups }}",
           "prev_ctr": "={{ $node['build_pdca_payload'].json.prev_ctr }}",
           "prev_signups": "={{ $node['build_pdca_payload'].json.prev_signups }}",
-          "status": "={{ $node['run_weekly_post_pdca'].json.status }}",
-          "reason": "={{ $node['run_weekly_post_pdca'].json.reason }}"
+          "status": "={{ $node['parse_pdca_stdout'].json.status }}",
+          "reason": "={{ $node['parse_pdca_stdout'].json.reason }}"
         }
       }
     },
@@ -174,9 +232,10 @@
       "purpose": "今週のctr/signupsを次回実行時のprev_ctr/prev_signupsとしてpdca_stateシートに上書き保存する",
       "config": {
         "operation": "update",
-        "spreadsheet_id": "<GOOGLE_SHEETS_SPREADSHEET_ID>",
-        "sheet_name": "pdca_state",
-        "range": "pdca_state!A2:B2",
+        "authentication": "Google Service Account Credential (Sheets API scope)",
+        "spreadsheet_id": "={{ $node['load_runtime_config'].json.sheets_spreadsheet_id }}",
+        "sheet_name": "={{ $node['load_runtime_config'].json.sheets_state_sheet_name }}",
+        "range": "A2:B2",
         "value_mapping": {
           "prev_ctr": "={{ $node['build_pdca_payload'].json.ctr }}",
           "prev_signups": "={{ $node['build_pdca_payload'].json.signups }}"
@@ -185,31 +244,44 @@
       }
     },
     {
-      "id": "notify_slack",
-      "name": "Notify Slack",
+      "id": "notify_slack_success",
+      "name": "Notify Slack (Success)",
       "type": "n8n-nodes-base.slack",
-      "purpose": "週次PDCAの判定結果と次週の投稿A/B案・LP改善案をSlackに通知する",
+      "purpose": "週次PDCAの判定結果と次週の投稿A/B案・LP改善案をSlackに通知する（成功時）",
       "config": {
         "credential_name": "Slack API Credential Name",
-        "channel": "#weekly-pdca",
-        "message_template": "週次PDCA: {{ $node['build_pdca_payload'].json.week }}\nstatus: {{ $node['run_weekly_post_pdca'].json.status }}\nreason: {{ $node['run_weekly_post_pdca'].json.reason }}\nnext_post_A: {{ $node['run_weekly_post_pdca'].json.next_post_A }}\nnext_post_B: {{ $node['run_weekly_post_pdca'].json.next_post_B }}\nlp_suggestions: {{ $node['run_weekly_post_pdca'].json.lp_suggestions.length > 0 ? $node['run_weekly_post_pdca'].json.lp_suggestions.join(' / ') : 'なし' }}",
-        "error_branch_message_template": "[エラー] 週次PDCA自動実行に失敗しました。run_weekly_post_pdcaノードのエラー内容を確認してください。"
+        "channel": "={{ $node['load_runtime_config'].json.slack_channel }}",
+        "message_template": "週次PDCA: {{ $node['build_pdca_payload'].json.week }}\nstatus: {{ $node['parse_pdca_stdout'].json.status }}\nreason: {{ $node['parse_pdca_stdout'].json.reason }}\n\nnext_post_A:\n{{ $node['parse_pdca_stdout'].json.next_post_A }}\n\nnext_post_B:\n{{ $node['parse_pdca_stdout'].json.next_post_B }}\n\nlp_suggestions:\n{{ $node['parse_pdca_stdout'].json.lp_suggestions && $node['parse_pdca_stdout'].json.lp_suggestions.length > 0 ? $node['parse_pdca_stdout'].json.lp_suggestions.join(' / ') : 'なし' }}"
+      }
+    },
+    {
+      "id": "notify_slack_error",
+      "name": "Notify Slack (Error)",
+      "type": "n8n-nodes-base.slack",
+      "purpose": "週次PDCA自動実行が失敗した場合にエラー内容をSlackに通知する",
+      "config": {
+        "credential_name": "Slack API Credential Name",
+        "channel": "={{ $node['load_runtime_config'].json.slack_channel }}",
+        "message_template": "[エラー] 週次PDCA自動実行に失敗しました。\nノード: run_weekly_post_pdca / parse_pdca_stdout\n詳細はn8nの実行ログを確認してください。"
       }
     }
   ],
   "connections": [
-    { "from": "cron_weekly", "to": "x_ads_metrics" },
-    { "from": "cron_weekly", "to": "ga4_signups" },
-    { "from": "cron_weekly", "to": "load_prev_metrics" },
+    { "from": "cron_weekly", "to": "load_runtime_config" },
+    { "from": "load_runtime_config", "to": "x_ads_metrics" },
+    { "from": "load_runtime_config", "to": "ga4_signups" },
+    { "from": "load_runtime_config", "to": "load_prev_metrics" },
     { "from": "x_ads_metrics", "to": "calc_ctr" },
     { "from": "calc_ctr", "to": "build_pdca_payload" },
     { "from": "ga4_signups", "to": "build_pdca_payload" },
     { "from": "load_prev_metrics", "to": "build_pdca_payload" },
     { "from": "build_pdca_payload", "to": "run_weekly_post_pdca" },
-    { "from": "run_weekly_post_pdca", "to": "log_to_sheets" },
-    { "from": "run_weekly_post_pdca", "to": "update_prev_metrics" },
-    { "from": "run_weekly_post_pdca", "to": "notify_slack" },
-    { "from": "run_weekly_post_pdca", "to": "notify_slack", "condition": "on_error", "label": "error_branch" }
+    { "from": "run_weekly_post_pdca", "to": "parse_pdca_stdout" },
+    { "from": "parse_pdca_stdout", "to": "if_pdca_success" },
+    { "from": "if_pdca_success", "to": "log_to_sheets", "condition": "true" },
+    { "from": "if_pdca_success", "to": "update_prev_metrics", "condition": "true" },
+    { "from": "if_pdca_success", "to": "notify_slack_success", "condition": "true" },
+    { "from": "if_pdca_success", "to": "notify_slack_error", "condition": "false" }
   ],
   "execution_notes": [
     "初週はprev_ctr/prev_signupsにnullを入れてbaseline判定を期待する（load_prev_metricsで値が見つからない場合は必ずnullを渡すこと）",
@@ -217,9 +289,9 @@
     "GA4の集計期間とCron実行タイミングのズレを考慮し、対象期間（直近7日間）を明示的にx_ads_metrics/ga4_signups双方のクエリで揃える",
     "Google Sheetsへの書き込みはappendで行い、行数増加に応じてアーカイブ戦略（例: 52週分を超えたら年次シートに退避）を別途検討する",
     "update_prev_metricsは常に単一のstate行を上書きするため、複数キャンペーン/複数セミナーを並行運用する場合はcampaign_idまたはseminar_idをキーにした行検索に拡張する必要がある",
-    "run_weekly_post_pdcaのstdoutにJSON以外の文字列（ログ出力等）が混入するとJSON.parseに失敗するため、weekly-post-pdca.js側は標準出力にJSON以外を出さない実装を維持すること",
-    "X Ads APIキー・GA4サービスアカウント鍵・Slack Credentialは本ワークフローJSON・本リポジトリのいずれにも保存しない。すべてn8nのCredentials機能で注入する",
-    "notify_slackのエラー分岐は、run_weekly_post_pdcaが失敗した場合にlog_to_sheets/update_prev_metricsをスキップし、エラー通知のみ行う設計とする（中途半端な状態でstateを更新しないため）",
+    "run_weekly_post_pdcaのstdoutにJSON以外の文字列（ログ出力等）が混入するとparse_pdca_stdoutで失敗するため、weekly-post-pdca.js側は標準出力にJSON以外を出さない実装を維持すること",
+    "X Ads APIキー・GA4サービスアカウント鍵・Slack Credentialは本ワークフローJSON・本リポジトリには保存せず、すべてn8nのCredentials機能で注入する",
+    "if_pdca_successのfalse分岐ではlog_to_sheets/update_prev_metricsをスキップし、notify_slack_errorのみを実行して中途半端なstate更新を避ける",
     "タイムゾーンはAsia/Tokyoに統一し、cron_weeklyの起動時刻とGA4/X Adsの集計対象日境界のズレに注意する"
   ]
 }
