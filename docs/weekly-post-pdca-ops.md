@@ -283,4 +283,50 @@ CTRも申込み数も弱く、広告・LPの両方に改善が必要と判断し
 - `keep` / `replace_post` / `improve_lp` / `replace_post_and_improve_lp` の厳密な分岐条件の再検証
 - LP改善案のテンプレート（現状は汎用的な改善観点。実LP本文に基づく具体案への精緻化は未実装）
 - X Adsのレポート取得手順（X Ads API連携は`docs/x-ads-integration.md`参照、未接続）
-- 週次ログの保存フォーマット（現状、週次データの永続化先は未定義。Google Sheetsに保存する場合はParent/X_ads_ops拡張が必要）
+
+## Google Sheets 標準シート構成（n8n自動運用専用、確定）
+
+`docs/weekly-pdca-n8n-workflow.json`のn8n自動化専用のシート構成。Parent/X_ads_ops/LPs（`docs/schema.md`、
+セミナー1件ごとの企画・広告案管理用）とは別の、週次PDCAの実行ログ・状態管理に特化したシート。
+同一スプレッドシート内に以下2タブを作成する。
+
+### タブ1: `weekly_pdca_log`（週次実行のログ。1週間＝1行、append専用）
+
+| column | 型 | 説明 |
+|---|---|---|
+| week | string | 対象週ラベル（例: "2026-07-13週"） |
+| run_at | datetime | ワークフロー実行日時（ISO8601、自動記録） |
+| ctr | number | 今週のCTR |
+| signups | number | 今週の申込数 |
+| prev_ctr | number | 前週のCTR（初週は空） |
+| prev_signups | number | 前週の申込数（初週は空） |
+| status | string | baseline / keep / replace_post / improve_lp / replace_post_and_improve_lp |
+| reason | string | 判定理由 |
+| next_post_A | string | 投稿A案（差し替え対象週のみ、それ以外は空） |
+| next_post_B | string | 投稿B案（差し替え対象週のみ、それ以外は空） |
+| lp_suggestions | string | LP改善案（複数ある場合は" / "区切りの1セル） |
+
+### タブ2: `pdca_state`（前週比較用の最小限の状態。常に1行のみ、上書き）
+
+| column | 型 | 説明 |
+|---|---|---|
+| row_key | string | 固定値`"current"`。n8nのappendOrUpdate操作でこの列をキーに単一行を維持する |
+| prev_ctr | number | 直近実行時のCTR（次回実行時に読み込まれ`prev_ctr`として使われる） |
+| prev_signups | number | 直近実行時の申込数（次回実行時に`prev_signups`として使われる） |
+| last_status | string | 直近判定のstatus（参考情報、PDCAロジックの入力には使わない） |
+| updated_at | datetime | 最終更新日時（ISO8601） |
+
+**初期セットアップ時の注意**: `pdca_state`シートは、初回ワークフロー実行前に手動でヘッダー行＋
+`row_key="current"`のデータ行を1行だけ作成しておくこと（他の列は空でよい）。これにより初回実行時の
+「読み込み対象行が存在しない」エラーを避けられる。2回目以降はn8n側の`appendOrUpdate`操作が自動的に
+この行を上書きするため、手動操作は不要。
+
+### n8nノードとの対応
+
+| n8nノード | 操作 | 対象タブ | 内容 |
+|---|---|---|---|
+| Load Previous Week Metrics | read（range: `A2:E2`） | pdca_state | 前週のprev_ctr/prev_signupsを読む |
+| Append Weekly Log | append | weekly_pdca_log | 今週の実績・判定結果を1行追記 |
+| Update State for Next Week | appendOrUpdate（matchingColumns: `row_key`） | pdca_state | row_key="current"行を次回用に上書き |
+
+詳細な`parameters`定義は`docs/weekly-pdca-n8n-workflow.json`の該当ノードを参照。

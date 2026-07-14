@@ -178,7 +178,7 @@
         840,
         600
       ],
-      "notes": "pdca_stateシートから直近保存済みのprev_ctr/prev_signupsを読み出す。初回実行時は値が存在せずnull扱いとなる",
+      "notes": "pdca_stateシート(row_key/prev_ctr/prev_signups/last_status/updated_at)のrow_key=\"current\"行(2行目固定、初期セットアップ時に1行だけ手動で作成しておく前提)を読む。初回実行時、prev_ctr/prev_signupsが空であれば後段でnullとして扱われる。",
       "parameters": {
         "resource": "sheet",
         "operation": "read",
@@ -192,7 +192,7 @@
           "cachedResultName": "={{ $node['Load Runtime Config'].json.sheets_state_sheet_name }}"
         },
         "options": {},
-        "range": "A2:B2"
+        "range": "A2:E2"
       },
       "credentials": {
         "googleApi": {
@@ -259,7 +259,7 @@
       "notes": "run_weekly_post_pdcaの標準出力文字列をJSON.parseし、後続ノードから扱いやすい形に整える",
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const stdout = $json.stdout || $json.data || '';\nif (!stdout) {\n  throw new Error('PDCA script returned empty stdout');\n}\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout.trim());\n} catch (e) {\n  throw new Error('Failed to parse PDCA stdout as JSON: ' + e.message);\n}\nreturn [{ json: parsed }];"
+        "jsCode": "const stdout = $json.stdout || $json.data || '';\nif (!stdout) {\n  throw new Error('PDCA script returned empty stdout');\n}\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout.trim());\n} catch (e) {\n  throw new Error('Failed to parse PDCA stdout as JSON: ' + e.message);\n}\n\n// Slack通知向けに、statusを人間が一目で分かる評価(verdict)と次週アクション方針(action)に変換する\nconst VERDICT_BY_STATUS = {\n  baseline: '初回計測（ベースライン）',\n  keep: '良好・維持',\n  replace_post: '要改善（広告文）',\n  improve_lp: '要改善（LP）',\n  replace_post_and_improve_lp: '要改善（広告・LP両方）',\n};\nconst ACTION_BY_STATUS = {\n  baseline: '来週から前週比較を開始します。今週生成した投稿A/Bをそのまま配信してください。',\n  keep: '現状の投稿・LPをそのまま継続してください（軽微な文言調整のみ反映）。',\n  replace_post: '今週生成した投稿A/Bに差し替えてください。LPは現状維持でOKです。',\n  improve_lp: '投稿はそのまま、LPをlp_suggestionsの内容で見直してください。',\n  replace_post_and_improve_lp: '投稿A/Bへの差し替えと、LP改善の両方を実施してください。',\n};\n\nparsed.verdict = VERDICT_BY_STATUS[parsed.status] || parsed.status;\nparsed.action = ACTION_BY_STATUS[parsed.status] || '';\n\nreturn [{ json: parsed }];"
       }
     },
     {
@@ -310,17 +310,20 @@
           "mappingMode": "defineBelow",
           "value": {
             "week": "={{ $node['Build PDCA Payload'].json.week }}",
+            "run_at": "={{ $now.toISO() }}",
             "ctr": "={{ $node['Build PDCA Payload'].json.ctr }}",
             "signups": "={{ $node['Build PDCA Payload'].json.signups }}",
             "prev_ctr": "={{ $node['Build PDCA Payload'].json.prev_ctr }}",
             "prev_signups": "={{ $node['Build PDCA Payload'].json.prev_signups }}",
             "status": "={{ $node['Parse PDCA Stdout'].json.status }}",
-            "reason": "={{ $node['Parse PDCA Stdout'].json.reason }}"
+            "reason": "={{ $node['Parse PDCA Stdout'].json.reason }}",
+            "next_post_A": "={{ $node['Parse PDCA Stdout'].json.next_post_A }}",
+            "next_post_B": "={{ $node['Parse PDCA Stdout'].json.next_post_B }}",
+            "lp_suggestions": "={{ $node['Parse PDCA Stdout'].json.lp_suggestions && $node['Parse PDCA Stdout'].json.lp_suggestions.length > 0 ? $node['Parse PDCA Stdout'].json.lp_suggestions.join(' / ') : '' }}"
           },
           "matchingColumns": [],
           "schema": []
-        },
-        "notes_matchingColumns": "update操作を使う場合、resource mapperのmatchingColumnsに一意キー列（例: 固定のrow_key列）をimport後にUIから設定すること。現状は常に単一state行を対象とする前提のプレースホルダ。"
+        }
       },
       "credentials": {
         "googleApi": {
@@ -338,10 +341,10 @@
         2940,
         350
       ],
-      "notes": "今週のctr/signupsを次回実行時のprev_ctr/prev_signupsとしてpdca_stateシートに上書き保存する",
+      "notes": "operation=appendOrUpdateとrow_key=\"current\"のmatchingColumnsにより、pdca_stateの単一state行を安全に作成/上書きする。row_keyが存在しなければ新規作成、存在すれば上書き。",
       "parameters": {
         "resource": "sheet",
-        "operation": "update",
+        "operation": "appendOrUpdate",
         "documentId": {
           "mode": "id",
           "value": "={{ $node['Load Runtime Config'].json.sheets_spreadsheet_id }}"
@@ -355,13 +358,17 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
+            "row_key": "current",
             "prev_ctr": "={{ $node['Build PDCA Payload'].json.ctr }}",
-            "prev_signups": "={{ $node['Build PDCA Payload'].json.signups }}"
+            "prev_signups": "={{ $node['Build PDCA Payload'].json.signups }}",
+            "last_status": "={{ $node['Parse PDCA Stdout'].json.status }}",
+            "updated_at": "={{ $now.toISO() }}"
           },
-          "matchingColumns": [],
+          "matchingColumns": [
+            "row_key"
+          ],
           "schema": []
-        },
-        "notes_matchingColumns": "update操作を使う場合、resource mapperのmatchingColumnsに一意キー列（例: 固定のrow_key列）をimport後にUIから設定すること。現状は常に単一state行を対象とする前提のプレースホルダ。"
+        }
       },
       "credentials": {
         "googleApi": {
@@ -382,7 +389,7 @@
       "notes": "週次PDCAの判定結果と次週の投稿A/B案・LP改善案をSlackに通知する（成功時）",
       "parameters": {
         "channel": "={{ $node['Load Runtime Config'].json.slack_channel }}",
-        "text": "=週次PDCA: {{ $node['Build PDCA Payload'].json.week }}\nstatus: {{ $node['Parse PDCA Stdout'].json.status }}\nreason: {{ $node['Parse PDCA Stdout'].json.reason }}\n\nnext_post_A:\n{{ $node['Parse PDCA Stdout'].json.next_post_A }}\n\nnext_post_B:\n{{ $node['Parse PDCA Stdout'].json.next_post_B }}\n\nlp_suggestions:\n{{ $node['Parse PDCA Stdout'].json.lp_suggestions && $node['Parse PDCA Stdout'].json.lp_suggestions.length > 0 ? $node['Parse PDCA Stdout'].json.lp_suggestions.join(' / ') : 'なし' }}",
+        "text": "=📊 週次PDCAレポート: {{ $node['Build PDCA Payload'].json.week }}\n\n■ 今週の実績\nCTR: {{ $node['Build PDCA Payload'].json.ctr }}（前週 {{ $node['Build PDCA Payload'].json.prev_ctr ?? '-' }}）\n申込数: {{ $node['Build PDCA Payload'].json.signups }}件（前週 {{ $node['Build PDCA Payload'].json.prev_signups ?? '-' }}件）\n\n■ 評価: {{ $node['Parse PDCA Stdout'].json.verdict }}\n{{ $node['Parse PDCA Stdout'].json.reason }}\n\n■ 次週のアクション\n{{ $node['Parse PDCA Stdout'].json.action }}\n\n詳細な投稿案・LP改善案はweekly_pdca_logシートをご確認ください。",
         "otherOptions": {}
       },
       "credentials": {
