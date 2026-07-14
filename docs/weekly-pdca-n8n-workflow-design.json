@@ -1,0 +1,225 @@
+{
+  "workflow_name": "Weekly X Ads PDCA Automation",
+  "goal": "Fully automated weekly PDCA for seminar acquisition via X Ads + LP, human-touch-free from metrics collection through Slack reporting",
+  "input_contract": {
+    "requires": {
+      "x_ads": {
+        "api_credentials": "X Ads API Credential",
+        "account_id": "string",
+        "campaign_id": "string"
+      },
+      "ga4": {
+        "api_credentials": "Google Service Account Credential (GA4 Data API scope)",
+        "property_id": "string",
+        "event_name": "seminar_signup"
+      },
+      "sheets": {
+        "api_credentials": "Google Service Account Credential (Sheets API scope)",
+        "spreadsheet_id": "string",
+        "log_sheet_name": "weekly_pdca_log",
+        "state_sheet_name": "pdca_state"
+      },
+      "slack": {
+        "credential_name": "Slack API Credential Name",
+        "channel": "#weekly-pdca"
+      },
+      "repo": {
+        "working_directory": ".",
+        "script_path": "scripts/weekly-post-pdca.js"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": "cron_weekly",
+      "name": "Weekly Trigger",
+      "type": "n8n-nodes-base.cron",
+      "purpose": "毎週決まった曜日・時刻にワークフロー全体を起動する",
+      "config": {
+        "triggerTimes": {
+          "item": [
+            { "mode": "everyWeek", "weekday": 1, "hour": 9, "minute": 0 }
+          ]
+        },
+        "timezone": "Asia/Tokyo",
+        "notes": "月曜9:00 JSTに起動。X Ads/GA4の集計対象期間は直近7日間（前週月曜〜日曜）とする"
+      }
+    },
+    {
+      "id": "x_ads_metrics",
+      "name": "Fetch X Ads Metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "purpose": "対象キャンペーンの直近7日間のimpressions/url_clicksを取得する",
+      "config": {
+        "method": "GET",
+        "api_endpoint": "https://ads-api.x.com/12/stats/accounts/{{ $json.account_id }}",
+        "authentication": "X Ads API Credential（OAuth1.0a、実キーは本リポジトリ・本ワークフローJSONに書かない。n8n Credentialsで注入）",
+        "query_parameters": {
+          "entity": "CAMPAIGN",
+          "entity_ids": "<X_ADS_CAMPAIGN_ID>",
+          "metric_groups": "ENGAGEMENT",
+          "placement": "ALL_ON_TWITTER",
+          "start_time": "={{ $today.minus(7, 'days').toISO() }}",
+          "end_time": "={{ $today.toISO() }}",
+          "granularity": "TOTAL"
+        },
+        "output_mapping": {
+          "impressions": "response.data[0].id_data[0].metrics.impressions[0]",
+          "url_clicks": "response.data[0].id_data[0].metrics.clicks[0]"
+        },
+        "output_example": { "impressions": 12000, "url_clicks": 150 }
+      }
+    },
+    {
+      "id": "ga4_signups",
+      "name": "Fetch GA4 Signups",
+      "type": "n8n-nodes-base.httpRequest",
+      "purpose": "GA4のConversion Event(seminar_signup)から対象週の申込み数を取得する",
+      "config": {
+        "method": "POST",
+        "api_endpoint": "https://analyticsdata.googleapis.com/v1beta/properties/<GA4_PROPERTY_ID>:runReport",
+        "authentication": "Google Service Account Credential Placeholder（GA4 Data API読み取りスコープ）",
+        "request_body": {
+          "dateRanges": [
+            { "startDate": "={{ $today.minus(7, 'days').toFormat('yyyy-MM-dd') }}", "endDate": "={{ $today.toFormat('yyyy-MM-dd') }}" }
+          ],
+          "dimensions": [{ "name": "eventName" }],
+          "metrics": [{ "name": "eventCount" }],
+          "dimensionFilter": {
+            "filter": { "fieldName": "eventName", "stringFilter": { "value": "seminar_signup" } }
+          }
+        },
+        "output_mapping": { "signups": "response.rows[0].metricValues[0].value（存在しなければ0）" },
+        "output_example": { "signups": 3 },
+        "notes": "フォームバックエンドが別APIの場合は、このHTTP RequestをそのAPIのエンドポイントに差し替える"
+      }
+    },
+    {
+      "id": "calc_ctr",
+      "name": "Calculate CTR",
+      "type": "n8n-nodes-base.code",
+      "purpose": "impressions/url_clicksからCTRを算出する。impressions=0の場合は0とする",
+      "config": {
+        "language": "javaScript",
+        "code": "const impressions = Number($json.impressions) || 0;\nconst urlClicks = Number($json.url_clicks) || 0;\nconst ctr = impressions > 0 ? urlClicks / impressions : 0;\nreturn [{ json: { ctr, impressions, url_clicks: urlClicks } }];"
+      }
+    },
+    {
+      "id": "load_prev_metrics",
+      "name": "Load Previous Week Metrics",
+      "type": "n8n-nodes-base.googleSheets",
+      "purpose": "pdca_stateシートから直近保存済みのprev_ctr/prev_signupsを読み出す。初回実行時は値が存在せずnull扱いとなる",
+      "config": {
+        "operation": "read",
+        "spreadsheet_id": "<GOOGLE_SHEETS_SPREADSHEET_ID>",
+        "sheet_name": "={{ $node['input_contract'].json.sheets.state_sheet_name }}",
+        "range": "pdca_state!A2:B2",
+        "column_mapping": { "prev_ctr": "A2", "prev_signups": "B2" },
+        "empty_handling": "セルが空、またはシート/行が存在しない場合はprev_ctr=null, prev_signups=nullとして後続に渡す"
+      }
+    },
+    {
+      "id": "build_pdca_payload",
+      "name": "Build PDCA Payload",
+      "type": "n8n-nodes-base.code",
+      "purpose": "weekly-post-pdca.jsに渡す入力JSONを組み立てる。docs/weekly-post-pdca-ops.mdの入力仕様に準拠する",
+      "config": {
+        "language": "javaScript",
+        "code": "const pad = (n) => String(n).padStart(2, '0');\nconst now = new Date();\nconst week = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}週`;\n\nconst ctr = $node['calc_ctr'].json.ctr;\nconst signups = $node['ga4_signups'].json.signups;\nconst prevCtrRaw = $node['load_prev_metrics'].json.prev_ctr;\nconst prevSignupsRaw = $node['load_prev_metrics'].json.prev_signups;\n\nconst prev_ctr = (prevCtrRaw === undefined || prevCtrRaw === '' || prevCtrRaw === null) ? null : Number(prevCtrRaw);\nconst prev_signups = (prevSignupsRaw === undefined || prevSignupsRaw === '' || prevSignupsRaw === null) ? null : Number(prevSignupsRaw);\n\nreturn [{ json: { week, ctr, signups, prev_ctr, prev_signups } }];",
+        "notes": "prev_ctr/prev_signupsが存在しない場合は必ずnullを入れる（baseline判定のトリガー）"
+      }
+    },
+    {
+      "id": "run_weekly_post_pdca",
+      "name": "Run weekly-post-pdca.js",
+      "type": "n8n-nodes-base.executeCommand",
+      "purpose": "scripts/weekly-post-pdca.jsをCLI実行し、判定結果と投稿A/B案・LP改善案のJSONを取得する",
+      "config": {
+        "command": "node",
+        "args": ["scripts/weekly-post-pdca.js", "={{ JSON.stringify($json) }}"],
+        "working_directory": ".",
+        "expected_stdout_format": "stdoutにJSONオブジェクトが1つだけ出力される想定（week/status/reason/next_post_A/next_post_B/lp_suggestions）",
+        "error_handling": [
+          "exit code が 0 以外の場合、ワークフローを失敗として扱い notify_slack のエラー通知分岐に渡す",
+          "stdoutが空、またはJSON.parseに失敗した場合も同様にエラー扱いとする",
+          "リトライは行わず、Slackにエラー内容を通知して人間の確認を促す（自動リトライによる二重投稿案生成を避けるため）"
+        ]
+      }
+    },
+    {
+      "id": "log_to_sheets",
+      "name": "Append Weekly Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "purpose": "今週の実績と判定結果をweekly_pdca_logシートに1行追加する",
+      "config": {
+        "operation": "append",
+        "spreadsheet_id": "<GOOGLE_SHEETS_SPREADSHEET_ID>",
+        "sheet_name": "weekly_pdca_log",
+        "columns": ["week", "ctr", "signups", "prev_ctr", "prev_signups", "status", "reason"],
+        "value_mapping": {
+          "week": "={{ $node['build_pdca_payload'].json.week }}",
+          "ctr": "={{ $node['build_pdca_payload'].json.ctr }}",
+          "signups": "={{ $node['build_pdca_payload'].json.signups }}",
+          "prev_ctr": "={{ $node['build_pdca_payload'].json.prev_ctr }}",
+          "prev_signups": "={{ $node['build_pdca_payload'].json.prev_signups }}",
+          "status": "={{ $node['run_weekly_post_pdca'].json.status }}",
+          "reason": "={{ $node['run_weekly_post_pdca'].json.reason }}"
+        }
+      }
+    },
+    {
+      "id": "update_prev_metrics",
+      "name": "Update State for Next Week",
+      "type": "n8n-nodes-base.googleSheets",
+      "purpose": "今週のctr/signupsを次回実行時のprev_ctr/prev_signupsとしてpdca_stateシートに上書き保存する",
+      "config": {
+        "operation": "update",
+        "spreadsheet_id": "<GOOGLE_SHEETS_SPREADSHEET_ID>",
+        "sheet_name": "pdca_state",
+        "range": "pdca_state!A2:B2",
+        "value_mapping": {
+          "prev_ctr": "={{ $node['build_pdca_payload'].json.ctr }}",
+          "prev_signups": "={{ $node['build_pdca_payload'].json.signups }}"
+        },
+        "notes": "常に単一のstate行(A2:B2)を上書きする方式。複数キャンペーン対応が必要になった場合はcampaign_id列を追加してキー検索に変更する"
+      }
+    },
+    {
+      "id": "notify_slack",
+      "name": "Notify Slack",
+      "type": "n8n-nodes-base.slack",
+      "purpose": "週次PDCAの判定結果と次週の投稿A/B案・LP改善案をSlackに通知する",
+      "config": {
+        "credential_name": "Slack API Credential Name",
+        "channel": "#weekly-pdca",
+        "message_template": "週次PDCA: {{ $node['build_pdca_payload'].json.week }}\nstatus: {{ $node['run_weekly_post_pdca'].json.status }}\nreason: {{ $node['run_weekly_post_pdca'].json.reason }}\nnext_post_A: {{ $node['run_weekly_post_pdca'].json.next_post_A }}\nnext_post_B: {{ $node['run_weekly_post_pdca'].json.next_post_B }}\nlp_suggestions: {{ $node['run_weekly_post_pdca'].json.lp_suggestions.length > 0 ? $node['run_weekly_post_pdca'].json.lp_suggestions.join(' / ') : 'なし' }}",
+        "error_branch_message_template": "[エラー] 週次PDCA自動実行に失敗しました。run_weekly_post_pdcaノードのエラー内容を確認してください。"
+      }
+    }
+  ],
+  "connections": [
+    { "from": "cron_weekly", "to": "x_ads_metrics" },
+    { "from": "cron_weekly", "to": "ga4_signups" },
+    { "from": "cron_weekly", "to": "load_prev_metrics" },
+    { "from": "x_ads_metrics", "to": "calc_ctr" },
+    { "from": "calc_ctr", "to": "build_pdca_payload" },
+    { "from": "ga4_signups", "to": "build_pdca_payload" },
+    { "from": "load_prev_metrics", "to": "build_pdca_payload" },
+    { "from": "build_pdca_payload", "to": "run_weekly_post_pdca" },
+    { "from": "run_weekly_post_pdca", "to": "log_to_sheets" },
+    { "from": "run_weekly_post_pdca", "to": "update_prev_metrics" },
+    { "from": "run_weekly_post_pdca", "to": "notify_slack" },
+    { "from": "run_weekly_post_pdca", "to": "notify_slack", "condition": "on_error", "label": "error_branch" }
+  ],
+  "execution_notes": [
+    "初週はprev_ctr/prev_signupsにnullを入れてbaseline判定を期待する（load_prev_metricsで値が見つからない場合は必ずnullを渡すこと）",
+    "X Ads APIのレートリミットに注意し、必要ならcampaign単位の集計のみ行う（アカウント全体の集計は避ける）",
+    "GA4の集計期間とCron実行タイミングのズレを考慮し、対象期間（直近7日間）を明示的にx_ads_metrics/ga4_signups双方のクエリで揃える",
+    "Google Sheetsへの書き込みはappendで行い、行数増加に応じてアーカイブ戦略（例: 52週分を超えたら年次シートに退避）を別途検討する",
+    "update_prev_metricsは常に単一のstate行を上書きするため、複数キャンペーン/複数セミナーを並行運用する場合はcampaign_idまたはseminar_idをキーにした行検索に拡張する必要がある",
+    "run_weekly_post_pdcaのstdoutにJSON以外の文字列（ログ出力等）が混入するとJSON.parseに失敗するため、weekly-post-pdca.js側は標準出力にJSON以外を出さない実装を維持すること",
+    "X Ads APIキー・GA4サービスアカウント鍵・Slack Credentialは本ワークフローJSON・本リポジトリのいずれにも保存しない。すべてn8nのCredentials機能で注入する",
+    "notify_slackのエラー分岐は、run_weekly_post_pdcaが失敗した場合にlog_to_sheets/update_prev_metricsをスキップし、エラー通知のみ行う設計とする（中途半端な状態でstateを更新しないため）",
+    "タイムゾーンはAsia/Tokyoに統一し、cron_weeklyの起動時刻とGA4/X Adsの集計対象日境界のズレに注意する"
+  ]
+}
