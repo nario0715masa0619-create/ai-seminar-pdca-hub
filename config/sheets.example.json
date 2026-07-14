@@ -8,6 +8,8 @@
     "slides": "slides",
     "follow_up": "follow_up",
     "x_ads_ops": "X_ads_ops",
-    "lps": "LPs"
+    "lps": "LPs",
+    "weekly_pdca_log": "weekly_pdca_log",
+    "pdca_state": "pdca_state"
   }
 }

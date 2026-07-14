@@ -28,6 +28,8 @@ const HEADING_TO_TEMPLATE_KEY = {
   "Follow-up Template": "follow_up",
   "X_ads Sheet (Acquisition Automation)": "x_ads_ops",
   "LPs Sheet (Acquisition Automation)": "lps",
+  "weekly_pdca_log Sheet (Weekly PDCA Automation)": "weekly_pdca_log",
+  "pdca_state Sheet (Weekly PDCA Automation)": "pdca_state",
 };
 
 /**

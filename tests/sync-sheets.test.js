@@ -72,8 +72,10 @@ test("loadSheetsConfig loads config/sheets.example.json via SHEETS_CONFIG_PATH o
       "lp",
       "lps",
       "parent",
+      "pdca_state",
       "slides",
       "talk",
+      "weekly_pdca_log",
       "x_ads",
       "x_ads_ops",
     ]);
